@@ -4420,7 +4420,7 @@ body.late-night #term-canvas { filter: brightness(0.84) contrast(1.12); }
         const leftItem = menuItems[i], rightItem = menuItems[i + 9], y = 4 + i * 2;
         if (leftItem) {
           term.setCursor(3, y); term.print(`[`, 15, 0); term.print(`${leftItem.num.padStart(2, ' ')}`, 14, 0); term.print(`] `, 15, 0);
-          term.print(`${leftItem.label.padEnd(28, ' ')}`, leftItem.num === '3' && unread > 0 ? 12 : 7, 0);
+          term.print(`${leftItem.label.padEnd(28, ' ')}`, 7, 0);
           term.addHitRegion(3, y, 34, 1, `main-${leftItem.num}`, leftItem.act, leftItem.label, leftItem.num);
         }
         if (rightItem) {

@@ -152,6 +152,7 @@
             else if (k === 'G') window.CyberBBS.Doors.openGitHub();
             else if (k === 'D') window.CyberBBS.Doors.openGames();
             else if (k === 'H' || k === 'W') window.CyberBBS.Doors.openWorldClock();
+            else if (k === 'T') window.CyberBBS.Doors.openTodayHub();
             else if (k === 'C') window.CyberBBS.Doors.openChat();
             else if (k === 'A') this.showAnsiGallery();
             else if (k === 'O') this.showOneLiners();
@@ -459,14 +460,16 @@
       const term = window.CyberBBS.Term;
       term.clear();
       term.clearHitRegions();
+      const currentDate = new Date().toISOString().substring(0, 10);
 
       term.println(`┌────────────────────────[ SYSTEM BULLETINS // NODE 1 ]────────────────────────┐`, 11, 0);
-      term.println(`│ Date: 1995-10-14       SysOp: DR. NOISE       Priority: SYSTEM ANNOUNCEMENT  │`, 15, 0);
+      term.println(`│ Date: ${currentDate}       SysOp: DR. NOISE       Priority: SYSTEM ANNOUNCEMENT  │`, 15, 0);
       term.println(`├──────────────────────────────────────────────────────────────────────────────┤`, 11, 0);
       term.println(`  1. NAVIGATION NOTICE: Primary navigation is by NUMBERS! Type 1-12 to jump.\r\n     Arrow keys pre-select items with '►'. Press Enter to confirm pre-selection.`, 14, 0);
       term.println(`  2. BULLETIN BOARD / FORUM: Full Internet forum database persisted as JSON!\r\n     Post threads, read discussions, and export/import FORUM_DATA.JSON.`, 10, 0);
       term.println(`  3. WORLD CLOCKS (HORAS MUNDIAIS): Real-time live ticking clocks across major\r\n     hubs (Seattle, New York, São Paulo, London, Paris, Tokyo, Sydney).`, 11, 0);
       term.println(`  4. GITHUB VAULT: Pure text repository browser, README text viewer & DIR tree!`, 7, 0);
+      term.println(`  5. TODAY HUB: Current date/time, live weather, headline briefing, and links.`, 14, 0);
       term.println(`├──────────────────────────────────────────────────────────────────────────────┤`, 11, 0);
 
       term.setCursor(20, 18);
@@ -512,6 +515,7 @@
         { num: '10', key: 'C', label: 'Live SysOp Chat', act: () => window.CyberBBS.Doors.openChat() },
         { num: '11', key: 'O', label: 'One-Liners Wall', act: () => this.showOneLiners() },
         { num: '12', key: 'S', label: 'Settings & Defaults', act: () => this.showSettings() },
+        { num: '13', key: 'T', label: 'Today Hub (Live Briefing)', act: () => window.CyberBBS.Doors.openTodayHub() },
         { num: '0',  key: 'X', label: 'Logoff & Disconnect', act: () => this.showLogoff() }
       ];
 
@@ -543,7 +547,7 @@
 
       term.setCursor(0, 18);
       term.println(`├──────────────────────────────────────────────────────────────────────────────┤`, 11, 0);
-      term.println(`│  Type NUMBER (1-12, 0) or use Arrow Keys to Pre-Select and press Enter       │`, 10, 0);
+      term.println(`│  Type NUMBER (1-13, 0) or use Arrow Keys to Pre-Select and press Enter       │`, 10, 0);
       term.println(`└──────────────────────────────────────────────────────────────────────────────┘`, 11, 0);
 
       term.setCursor(2, 21);
@@ -656,6 +660,7 @@
         term.println(`  F11 / Alt+Ent: Toggle Full Screen (Full HD 1080p)`, 15, 0);
         term.println(`  IN-TERMINAL  : All text input is typed directly on-screen (no pop-up windows!)`, 10, 0);
         term.println(`  MOUSE        : 100% clickable with hover indicator and scrollwheel support`, 10, 0);
+        term.println(`  T / 13        : Open the current Today Hub briefing (live data + weather)`, 10, 0);
 
         window.CyberBBS.Doors.renderFooter();
       });

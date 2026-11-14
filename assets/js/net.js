@@ -368,20 +368,119 @@
         const res = await this.fetchWithProxyChain(url);
         const text = await res.text();
         if (text && text.length > 40) {
-          return { ok: true, ansiText: text };
+          return { ok: true, ansiText: text, isLive: true, city };
+        }
+      } catch (e) {}
+
+      // Structured fallback with current observations from Open-Meteo.
+      try {
+        const geoUrl = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(city)}&count=1&language=en&format=json`;
+        const geoRes = await this.fetchWithTimeout(geoUrl);
+        const geo = await geoRes.json();
+        const place = geo.results?.[0];
+        if (place) {
+          const weatherUrl = `https://api.open-meteo.com/v1/forecast?latitude=${place.latitude}&longitude=${place.longitude}&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m&timezone=auto`;
+          const weatherRes = await this.fetchWithTimeout(weatherUrl);
+          const data = await weatherRes.json();
+          const current = data.current;
+          if (current) {
+            const condition = this.weatherCodeToText(current.weather_code);
+            return {
+              ok: true,
+              isLive: true,
+              city: place.name,
+              asciiText: [
+                `  CURRENT WEATHER: ${place.name.toUpperCase()}, ${place.country_code || ''}`,
+                `  ================================================================`,
+                `  Observed: ${current.time || 'now'}`,
+                `  Conditions: ${condition}`,
+                `  Temperature: ${current.temperature_2m}°C  Feels like: ${current.apparent_temperature}°C`,
+                `  Humidity: ${current.relative_humidity_2m}%  Wind: ${current.wind_speed_10m} km/h`,
+                `  Precipitation: ${current.precipitation} mm`,
+                `  Source: Open-Meteo / ${place.name}`
+              ].join('\r\n')
+            };
+          }
         }
       } catch (e) {}
 
       return {
         ok: true,
+        isLive: false,
+        city,
+        notice: '*** LIVE WEATHER UNAVAILABLE — SERVING LOCAL SENSOR FALLBACK ***',
         asciiText: `
   WEATHER TELEMETRY REPORT: ${city.toUpperCase()}
   ==============================================================
   Local Sensor Reading: 19°C (66°F) · Humidity: 54% · Wind: 8 mph
-  Conditions: Partially Overcast · Barometer: 1014 hPa (Steady)
-  Satellite Link: Online · Optimal 14.4k line clarity.
+  Conditions: Partially Overcast · Barometer: 1014 hPa (LAST CACHED READING)
+  Satellite Link: Offline · Showing bundled fallback telemetry.
   ==============================================================
         `
+      };
+    }
+
+    weatherCodeToText(code) {
+      const labels = {
+        0: 'Clear sky',
+        1: 'Mainly clear',
+        2: 'Partly cloudy',
+        3: 'Overcast',
+        45: 'Fog',
+        48: 'Depositing rime fog',
+        51: 'Light drizzle',
+        53: 'Moderate drizzle',
+        55: 'Dense drizzle',
+        61: 'Light rain',
+        63: 'Moderate rain',
+        65: 'Heavy rain',
+        71: 'Light snow',
+        73: 'Moderate snow',
+        75: 'Heavy snow',
+        80: 'Rain showers',
+        81: 'Moderate rain showers',
+        82: 'Violent rain showers',
+        95: 'Thunderstorm',
+        96: 'Thunderstorm with hail',
+        99: 'Thunderstorm with heavy hail'
+      };
+      return labels[code] || 'Unknown conditions';
+    }
+
+    async fetchTodayBrief(city = 'New York') {
+      const feeds = this.feedCategories.slice(0, 5);
+      const results = await Promise.all(feeds.map(async (feed) => {
+        const data = await this.fetchRssFeed(feed.url, feed.src);
+        return { feed, data };
+      }));
+
+      const headlines = [];
+      const seen = new Set();
+      results.forEach(({ data }) => {
+        (data.items || []).forEach(item => {
+          const key = `${item.title}|${item.link}`;
+          if (!seen.has(key)) {
+            seen.add(key);
+            headlines.push(item);
+          }
+        });
+      });
+
+      headlines.sort((a, b) => {
+        const aTime = Date.parse(a.date) || 0;
+        const bTime = Date.parse(b.date) || 0;
+        return bTime - aTime;
+      });
+
+      return {
+        generatedAt: new Date().toISOString(),
+        weather: await this.fetchWeather(city),
+        headlines: headlines.slice(0, 8),
+        feeds: results.map(({ feed, data }) => ({
+          source: feed.src,
+          isLive: data.isLive !== false,
+          count: (data.items || []).length
+        }))
       };
     }
   }

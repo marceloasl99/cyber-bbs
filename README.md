@@ -1,150 +1,228 @@
-# CYBER BBS — 1990s Dial-Up Simulator
+# CYBER BBS — Mega Edition v3.0
 
-[![License: CC BY-SA 4.0](https://img.shields.io/badge/License-CC_BY--SA_4.0-lightgrey.svg)](LICENSE-THIRD-PARTY.md)
-[![Platform: Web](https://img.shields.io/badge/Platform-Web%20%2F%20HTML5-blue.svg)](cyber-bbs.html)
-[![Terminal: 80x25 CP437](https://img.shields.io/badge/Terminal-80x25%20IBM%20VGA-green.svg)](cyber-bbs.html)
-[![Audio: Web Audio API](https://img.shields.io/badge/Audio-Procedural%2014.4k%20Modem-orange.svg)](cyber-bbs.html)
+CYBER BBS is a self-contained browser simulation of a 1990s dial-up Bulletin Board System. It keeps the visual language of an ANSI/CP437 terminal while adding useful current-day services: live RSS headlines, current weather, GitHub browsing, image search, practical web links, local netmail, file downloads, local uploads, games, an ANSI editor, multi-node status, and a weekly BBS newspaper.
 
-> **Tags:** `bbs`, `bulletin-board-system`, `dial-up`, `retro-computing`, `1990s`, `cp437`, `ansi-art`, `terminal-emulator`, `web-audio-api`, `usrobotics`
+The interface is intentionally written in English and presented as a fictional 1995 system operated by **DR. NOISE** on a 486DX2/66 with a USRobotics Courier 14.4k HST modem.
 
-A high-fidelity browser-based simulation of a 1990s dial-up Bulletin Board System running on a simulated 486DX2/66 with a USRobotics 14.4k HST modem and SysOp **DR. NOISE**.
+## What is new in Mega Edition v3.0
 
-Combines authentic vintage visuals and procedural Web Audio with **real, live Internet doors** (live RSS news, file downloads with Zmodem theater, real Wikimedia image searches with an on-the-fly Image-to-ANSI converter, GitHub repository explorer, and message base with local echo bots).
+- **Netmail:** local private mailbox with inbox, replies, deletion, unread counters, multiline composition, and SysOp bot replies.
+- **Daily briefing:** the `TODAY` command or menu option `13` combines current date/time, live weather, RSS headlines, source health, and practical links.
+- **Current weather:** live `wttr.in` data with Open-Meteo fallback and explicit offline status.
+- **News refresh:** RSS feeds can be refreshed manually and cached results remain usable when a provider is unavailable.
+- **File catalog:** searchable `FILES.BBS`-style areas, `FILE_ID.DIZ` detail views, real browser downloads, ZMODEM transfer theater, and local uploads.
+- **ANSI workshop:** gallery voting, SAUCE metadata, and a mouse/keyboard ANSI art editor that saves artwork locally.
+- **More doors:** Cyber Lord RPG, Star Trade, Zork-style adventure, Trivia Night, Blackjack, Hangman, Fortune, and additional retro utilities.
+- **Multi-node hopper:** switch between fictional node lines with separate callers and activity.
+- **Weekly newspaper:** generated local BBS newspaper with system activity, headlines, weather, and editorials.
+- **Progression:** login streaks, ranks, credits, upload/download ratio, forum activity, trivia score, and ANSI Master status.
+- **Terminal commands:** full-word commands such as `NEWS`, `FILES`, `MAIL`, `TODAY`, `NODES`, `NEWSPAPER`, `STATS`, `SETTINGS`, `PURE`, `NIGHT`, and `LOGOFF`.
+- **Accessibility and stability:** keyboard navigation, focus states, reduced-motion support, screen-reader metadata, reliable back navigation, and fullscreen synchronization.
 
----
+## Run on Windows
 
-## 📸 Screenshots
+### Double-click mode
 
-| 🖥️ Main Menu (80x25 Matrix) | 🌐 Real-Time World Clocks |
-|:---:|:---:|
-| ![Main Menu](docs/screenshots/05_main_menu.png) | ![World Clocks](docs/screenshots/06_world_clocks.png) |
+Open `index.html` in Chrome, Edge, or Firefox. No installation or build step is required.
 
-| 💬 Internet Forum / Bulletin Board | 🎨 ANSI Art Gallery |
-|:---:|:---:|
-| ![Forum](docs/screenshots/07_forum_board.png) | ![ANSI Gallery](docs/screenshots/08_ansi_gallery.png) |
+`cyber-bbs.html` is an identical standalone copy for distribution and backup.
 
-| ☎️ USRobotics 14.4k Handshake | 📜 System Bulletins |
-|:---:|:---:|
-| ![Modem Handshake](docs/screenshots/02_modem_handshake.png) | ![Bulletins](docs/screenshots/04_bulletins.png) |
+### Local HTTP mode
 
----
+HTTP mode is recommended for the most reliable browser behavior with external APIs:
 
-## 🚀 How to Run on Windows
-
-You have two convenient options:
-
-### Option 1: Instant Double-Click (Zero Setup)
-Simply double-click either:
-- **`cyber-bbs.html`** (Standalone single-file edition, 100% self-contained)
-- Or **`index.html`** (Modular edition)
-
-It opens directly in Google Chrome, Microsoft Edge, or Firefox.
-
-### Option 2: Local HTTP Server (Recommended for Best Network Performance)
-In PowerShell or Command Prompt inside `C:\55\bbs`:
 ```powershell
 python -m http.server 8080
 ```
-Then open `http://localhost:8080/` in your browser.
 
----
+Open:
 
-## 🖥️ Full Screen (Full HD 1080p)
+```text
+http://localhost:8080/index.html
+```
 
-Cyber BBS includes full support for 1920×1080 displays:
-- **Toggle Fullscreen**: Click the **`[ ⛶ FULL SCREEN ]`** bezel button on the top panel, or press **`F11`** or **`Alt+Enter`** on your keyboard.
-- **Crisp Integer Scaling**: The 80×25 terminal canvas scales sharply using nearest-neighbor pixel rendering without blurring.
-- **Aspect Ratio Switching**: Click **`[ 📐 RATIO: 4:3 ]`** to toggle between Classic 4:3 CRT monitor letterboxing and 16:9 widescreen.
-- **Glowing Modem LEDs**: The bottom bezel features animated status LEDs (`HS`, `AA`, `CD`, `OH`, `RD`, `SD`, `TR`, `MR`) that light up and blink in sync with modem dialing, typing, and file transfers!
+The project does not require npm, a framework, a database server, Docker, or API keys for its default features.
 
----
+## First session
 
-## ⌨️ Dual Navigation (Keyboard & Mouse)
+1. Open `index.html`.
+2. Press `1`, `Enter`, or click the dial area.
+3. Listen to or skip the synthesized modem handshake with `Esc`.
+4. Choose guest login, create a local handle, or sign in to a local profile.
+5. Press `1` to enter the main menu.
+6. Try `13` or type `TODAY` for the current briefing.
 
-### 1. 100% Keyboard-Navigable (No Mouse Required)
-- **Hotkeys**: Single-letter commands from the Main Menu:
-  - `[N]` News & Feeds (Real live RSS from Hacker News, NASA, BBC, Ars Technica)
-  - `[F]` File Areas & Downloads (Zmodem progress theater + local upload)
-  - `[P]` Photo Grabber (Real image search + Image-to-ANSI converter)
-  - `[G]` GitHub Vault (Real repository search, README viewer, ZIP downloads)
-  - `[M]` Message Base (FidoNet echo conferences + 6 local echo bots)
-  - `[D]` Door Games (Cyber Lord RPG, Star Trade, Blackjack, Hangman, Fortune)
-  - `[A]` ANSI Art Gallery (SAUCE metadata viewer and `.ans` exporter)
-  - `[W]` Weather Station (Live satellite weather via wttr.in)
-  - `[C]` Live SysOp Chat (Split-screen interactive chat with Dr. Noise)
-  - `[O]` One-Liners Graffiti Wall
-  - `[L]` Last Callers Log
-  - `[U]` User Statistics & Call History
-  - `[B]` System Bulletins
-  - `[S]` Settings (Color themes, CRT filters, aspect ratios)
-  - `[X]` / `[Q]` Logoff & Hangup
-  - `[?]` Help & Command Reference
-- **Arrow Keys & Enter**:
-  - `▲` / `▼` / `◄` / `►` (or `Tab` / `Shift+Tab`) moves highlighted selection across menu items and tables with audible retro mechanical clicks.
-  - `Enter` or `Space` activates the highlighted option.
-- **Escape**: Returns to the previous menu or aborts streaming text.
-- **Command Prompt**: Type commands at `Command> _` such as `NEWS`, `FILES`, `DIR`, `PHOTOS`, `GITHUB`, `MSGS`, `GAMES`, `WEATHER`, `CHAT`, `ANSI`, `WHO`, `STATS`, `SETTINGS`, `HELP`, `LOGOFF`.
+Audio begins only after an explicit user interaction. Use the bezel sound button or the `M` command to mute audio.
 
-### 2. 100% Mouse-Navigable
-- Every menu row, table item, action button, and bezel switch is interactive and clickable.
-- Hovering over any element displays an interactive cursor and yellow selector highlight.
-- Mouse scrollwheel is supported for scrolling through news dispatches and text files.
+## Main menu
 
----
+| Key | Door |
+|---|---|
+| `1` / `N` | News & Live Feeds |
+| `2` / `B` | Bulletin Board and Forum |
+| `3` / `E` | Netmail / Private Mail |
+| `4` / `F` | File Areas and Search |
+| `5` / `P` | Photo Grabber and ANSI conversion |
+| `6` / `G` | GitHub Vault |
+| `7` / `D` | Door Games |
+| `8` / `A` | ANSI Gallery and Editor |
+| `9` / `H` | World Clocks |
+| `10` / `W` | Weather Telemetry |
+| `11` / `C` | Live SysOp Chat |
+| `12` / `O` | One-Liners Wall |
+| `13` / `T` | Today Hub briefing |
+| `14` | Multi-Node Hopper |
+| `15` / `J` | Weekly BBS Newspaper |
+| `16` / `U` | User Statistics and Last Callers |
+| `17` / `S` | Settings and Atmosphere |
+| `0` / `X` / `Q` | Logoff and Disconnect |
 
-## 🔊 Procedural Web Audio Engine
+## Terminal controls
 
-No external audio files are downloaded; all audio is synthesized procedurally in real-time via the Web Audio API:
-- Dual-tone dial tone (350Hz + 440Hz).
-- DTMF touch-tone pulse pairs.
-- Ringback cadence (440Hz + 480Hz).
-- 14.4k USRobotics Courier handshake: V.25 answer tone (2100Hz), V.8 chirps, line probing ladder, scrambler white noise bursts, and final carrier lock chime.
-- Mechanical keyboard key clicks on typing.
-- Terminal bell (`BEL` 880Hz beep).
-- Zmodem transfer ticks and carrier drop hangup click.
-- Audio can be muted or unmuted anytime via the on-screen **`[ 🔊 SOUND ]`** button.
-- Press **`ESC`** or click **`[ SKIP HANDSHAKE ]`** to jump straight to the login screen.
+- `Enter` or `Space`: activate the selected item.
+- Arrow keys and `Tab`: move through clickable terminal regions.
+- `Esc`: cancel a prompt or return to the previous screen.
+- `F11` or `Alt+Enter`: toggle fullscreen.
+- Mouse click: activate highlighted terminal rows.
+- Mouse wheel: page through supported text and news views.
+- `Ctrl+L`: redraw the current screen.
+- `Alt+N`: hop to the next fictional node.
+- `PURE`: toggle a clean text-only presentation.
+- `NIGHT`: toggle after-hours SysOp atmosphere.
+- `HELP`: display the complete command reference.
 
----
+## Live data integrations
 
-## 🎨 Color Themes & CRT Filters
+### News
 
-Click **`[ 🎨 THEME ]`** on the bezel or visit `[S] Settings` to toggle between:
-1. **VGA Color** (Classic 16-color IBM VGA palette)
-2. **Green Phosphor** (P1 Matrix-style green monochrome)
-3. **Amber CRT** (Warm 3105 vintage amber monochrome)
-4. **Paper White** (Monochrome laboratory terminal)
-5. **Flat LCD** (Clean pixels, CRT effects disabled)
+The News door reads current RSS/Atom feeds from:
 
-Toggle **`[ 📺 CRT ]`** to enable or disable scanlines, screen curvature, and phosphor bloom.
+- Hacker News
+- BBC World
+- Slashdot
+- NASA News
+- Ars Technica
 
----
+The networking layer tries direct access first and then configured proxy fallbacks where necessary. Headlines are normalized to plain text, cached, and displayed with source, date, summary, and an external article link. If the network is unavailable, the application serves a clearly labeled historical archive digest.
 
-## 🛠️ Project Structure
+### Weather
+
+The Weather door and Today Hub request current observations for a city:
+
+1. `wttr.in` for terminal-style weather output.
+2. Open-Meteo geocoding and forecast APIs for structured current data.
+3. A bundled local sensor message when both live sources fail.
+
+The UI explicitly distinguishes `LIVE`, `CACHED`, and `OFFLINE` data.
+
+### GitHub
+
+The GitHub Vault uses the public GitHub REST API for repository search, README reading, directory browsing, and official archive links. Offline seed repositories keep the door usable when the API is unavailable. Requests are limited and cached to reduce rate-limit pressure.
+
+### Images
+
+Photo Grabber uses Wikimedia Commons search metadata and converts selected images into 16-color ANSI half-block art. Original image links, dimensions, and license information are retained. Google Images is only opened as an external search; the application does not scrape Google result pages.
+
+## Local persistence
+
+The application is local-first:
+
+- `localStorage` stores preferences, profiles, forums, netmail, ranks, settings, and game saves.
+- IndexedDB stores uploaded file contents and local binary data.
+- Browser data is not synchronized with other users.
+- Local netmail and forum posts are not delivered to a public server.
+- Export and restore options are available from Settings.
+
+Passwords are hashed with the browser Web Crypto API. This is suitable for local demo profiles, not for production authentication or shared accounts.
+
+## File downloads and uploads
+
+The file system imitates classic `FILES.BBS` areas while using normal browser downloads. The ZMODEM display is theatrical; it does not create a real serial modem transfer.
+
+Local uploads are stored only in the current browser under the local upload area. Files are never executed or installed by CYBER BBS. Users should inspect executable downloads before opening them.
+
+## Screenshots
+
+The repository includes screenshots generated from the current `index.html`:
+
+| Screen | Image |
+|---|---|
+| Dial screen | `docs/screenshots/01_dial_screen.png` |
+| Modem handshake | `docs/screenshots/02_modem_handshake.png` |
+| Login | `docs/screenshots/03_login_screen.png` |
+| System bulletins | `docs/screenshots/04_bulletins.png` |
+| Main menu | `docs/screenshots/05_main_menu.png` |
+| World clocks | `docs/screenshots/06_world_clocks.png` |
+| Netmail | `docs/screenshots/07_netmail.png` |
+| Forum | `docs/screenshots/08_forum_board.png` |
+| ANSI gallery | `docs/screenshots/09_ansi_gallery.png` |
+| Today Hub | `docs/screenshots/10_today_hub.png` |
+
+Regenerate them with:
+
+```powershell
+python tools\capture_screenshots.py
+```
+
+The script uses Chrome through Playwright and opens `index.html`, so the screenshots always represent the public entry point.
+
+## Project structure
 
 ```text
 cyber-bbs/
-├── index.html              # Modular application entry point
-├── cyber-bbs.html          # Standalone single-file bundle (zero dependencies, 250 KB)
-├── plan.txt                # Original architectural blueprint & specification
-├── LICENSE-THIRD-PARTY.md  # Attribution for VileR int10h IBM VGA fonts (CC BY-SA 4.0)
-├── README.md               # User manual and developer guide
+├── index.html                 # Canonical standalone application
+├── cyber-bbs.html             # Synchronized standalone distribution copy
+├── index-modular.html         # Earlier modular HTML template
+├── README.md                  # This guide
+├── LICENSE-THIRD-PARTY.md     # IBM VGA font attribution
+├── plan.txt                   # Original implementation blueprint
 ├── assets/
-│   ├── css/
-│   │   ├── fonts.css       # Embedded Base64 IBM VGA 9x16 & 8x16 typefaces
-│   │   ├── terminal.css    # 80x25 grid, bezel styling, Full HD 1080p scaling, 4:3 CRT
-│   │   └── crt.css         # Scanlines, vignette, curvature, color themes
-│   ├── fonts/
-│   │   ├── Px437_IBM_VGA_9x16.ttf
-│   │   └── Px437_IBM_VGA_8x16.ttf
-│   └── js/
-│       ├── audio.js        # Web Audio procedural modem & terminal synth
-│       ├── store.js        # Local profiles, credits, messages, IndexedDB uploads
-│       ├── net.js          # Resilient fetch, proxy chain, live RSS & GitHub API
-│       ├── ansi.js         # SAUCE parser & Image-to-ANSI 16-color converter
-│       ├── term.js         # 80x25 virtual buffer, procedural gapless box renderer
-│       ├── doors.js        # News, Files, Photos, GitHub, Forum, Games, Clocks, Chat
-│       └── app.js          # Boot -> Dial -> Login -> Main Menu router & inputs
+│   ├── css/                   # CRT and terminal styling sources
+│   ├── fonts/                 # Px437 IBM VGA font files
+│   └── js/                    # Earlier modular application sources
+├── docs/screenshots/          # Current UI captures
 └── tools/
-    └── bundle.mjs          # Standalone bundler utility
+    ├── bundle.mjs             # Synchronizes index.html to cyber-bbs.html
+    └── capture_screenshots.py # Playwright screenshot workflow
 ```
+
+## Development workflow
+
+The canonical product is the self-contained `index.html`. After changing it:
+
+```powershell
+node tools\bundle.mjs
+node --check .\tools\bundle.mjs
+python tools\capture_screenshots.py
+git diff --check
+```
+
+To validate embedded browser JavaScript manually, extract the `<script>` body and run `node --check` against the extracted file, or load the page in Chrome DevTools and verify there are no uncaught exceptions.
+
+## Design and technical notes
+
+- Rendering target: 80 columns × 25 rows on a high-resolution canvas.
+- Palette: IBM VGA 16-color palette.
+- Font: Px437 IBM VGA fonts by VileR, distributed under CC BY-SA 4.0.
+- Audio: Web Audio API synthesis only; no external modem recordings.
+- Navigation: terminal hit regions plus keyboard and mouse controls.
+- External data: fetched asynchronously and never required for boot.
+- Failure behavior: every external door has a local or cached fallback.
+- Privacy: no analytics, telemetry, or remote account system is included.
+
+## Known limitations
+
+- External RSS providers and APIs can change, rate-limit, or block browser requests.
+- Some providers require a local HTTP server instead of `file://`.
+- Browser downloads remain subject to provider CORS and `Content-Disposition` behavior.
+- Local profiles are not secure shared authentication.
+- The modem, ZMODEM transfer, SysOp replies, node activity, and bot responses are simulations.
+- A backend would be required for real multi-user boards, real mail delivery, public uploads, and synchronized presence.
+
+## Third-party attribution
+
+The embedded Px437 IBM VGA 8×16 and 9×16 fonts are attributed to VileR and the Oldschool PC Font Pack. They are used under CC BY-SA 4.0. See `LICENSE-THIRD-PARTY.md` for the attribution notice.
+
+## License
+
+CYBER BBS application content is distributed according to the repository license and the third-party terms documented in `LICENSE-THIRD-PARTY.md`. External news, images, repositories, and downloads remain subject to their original providers' licenses and terms.

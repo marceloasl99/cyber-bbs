@@ -3,7 +3,7 @@ import time
 from playwright.sync_api import sync_playwright
 
 os.makedirs('docs/screenshots', exist_ok=True)
-html_path = os.path.abspath('cyber-bbs.html')
+html_path = os.path.abspath('index.html')
 file_url = f'file:///{html_path.replace(os.sep, "/")}'
 
 print(f"Opening: {file_url}")
@@ -54,27 +54,44 @@ with sync_playwright() as p:
     page.screenshot(path='docs/screenshots/05_main_menu.png')
     print("Captured 05_main_menu.png")
 
-    # Open World Clocks (7)
-    page.keyboard.press('7')
+    # Open World Clocks (9)
+    page.keyboard.press('9')
     time.sleep(1)
     page.screenshot(path='docs/screenshots/06_world_clocks.png')
     print("Captured 06_world_clocks.png")
     page.keyboard.press('Escape')
     time.sleep(0.5)
 
-    # Open Forum (2)
-    page.keyboard.press('2')
+    # Open Netmail (3)
+    page.keyboard.press('3')
     time.sleep(1)
-    page.screenshot(path='docs/screenshots/07_forum_board.png')
-    print("Captured 07_forum_board.png")
+    page.screenshot(path='docs/screenshots/07_netmail.png')
+    print("Captured 07_netmail.png")
     page.keyboard.press('Escape')
     time.sleep(0.5)
 
-    # Open ANSI Gallery (9)
-    page.keyboard.press('9')
+    # Open Forum (2)
+    page.keyboard.press('2')
     time.sleep(1)
-    page.screenshot(path='docs/screenshots/08_ansi_gallery.png')
-    print("Captured 08_ansi_gallery.png")
+    page.screenshot(path='docs/screenshots/08_forum_board.png')
+    print("Captured 08_forum_board.png")
+    page.keyboard.press('Escape')
+    time.sleep(0.5)
+
+    # Open ANSI Gallery (8)
+    page.keyboard.press('8')
+    time.sleep(1)
+    page.screenshot(path='docs/screenshots/09_ansi_gallery.png')
+    print("Captured 09_ansi_gallery.png")
+    page.keyboard.press('Escape')
+    time.sleep(0.5)
+
+    # Open Today Hub (13)
+    page.keyboard.press('1')
+    page.keyboard.press('3')
+    time.sleep(4)
+    page.screenshot(path='docs/screenshots/10_today_hub.png')
+    print("Captured 10_today_hub.png")
 
     browser.close()
     print("Finished taking screenshots successfully!")

@@ -203,6 +203,104 @@
     }
 
     // ==========================================
+    // TODAY HUB — PRACTICAL LIVE DAILY BRIEFING
+    // ==========================================
+    openTodayHub(city = 'New York') {
+      window.CyberBBS.App.pushScreen('TODAY_HUB', async () => {
+        this.renderHeader('TODAY HUB // LIVE DAILY BRIEFING');
+        const term = window.CyberBBS.Term;
+        term.println(`\r\n  BUILDING CURRENT BRIEFING...`, 14, 0);
+        term.println(`  Reading live feeds and weather telemetry for ${city.toUpperCase()}...`, 8, 0);
+
+        try {
+          const brief = await window.CyberBBS.Net.fetchTodayBrief(city);
+          term.clear();
+          this.renderHeader('TODAY HUB // LIVE DAILY BRIEFING');
+
+          const now = new Date();
+          const dateText = now.toLocaleDateString('en-US', {
+            weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
+          });
+          const timeText = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+          term.println(`  ${dateText.toUpperCase()}`, 15, 0);
+          term.println(`  LOCAL CLOCK: ${timeText}  ·  BRIEFING GENERATED: ${brief.generatedAt.substring(11, 19)} UTC`, 10, 0);
+          term.println(`  ────────────────────────────────────────────────────────────────────────────`, 8, 0);
+          term.println(`  WEATHER // ${city.toUpperCase()}`, 11, 0);
+
+          const weatherLines = (brief.weather.ansiText || brief.weather.asciiText || '')
+            .replace(/\x1b\[[0-9;]*m/g, '')
+            .split(/\r?\n/)
+            .filter(line => line.trim())
+            .slice(0, 5);
+          weatherLines.forEach(line => term.println(`  ${line.trim().substring(0, 76)}`, 7, 0));
+          if (!brief.weather.isLive && brief.weather.notice) {
+            term.println(`  ${brief.weather.notice}`, 12, 0);
+          }
+
+          term.println(`  ────────────────────────────────────────────────────────────────────────────`, 8, 0);
+          term.println(`  LATEST HEADLINES // CURRENT SOURCES`, 11, 0);
+          const headlines = brief.headlines.slice(0, 5);
+          if (headlines.length === 0) {
+            term.println(`  NO HEADLINES AVAILABLE — USE NEWS DOOR TO RETRY EACH FEED.`, 12, 0);
+          } else {
+            headlines.forEach((item, index) => {
+              const date = (item.date || 'recent').replace('T', ' ').substring(0, 16);
+              const title = (item.title || 'Untitled').substring(0, 57);
+              term.println(`  ${String(index + 1).padStart(2, '0')}. ${date.padEnd(16, ' ')} ${title}`, 15, 0);
+            });
+          }
+
+          term.println(`  ────────────────────────────────────────────────────────────────────────────`, 8, 0);
+          const liveFeeds = brief.feeds.filter(feed => feed.isLive).length;
+          term.println(`  SOURCES: ${liveFeeds}/${brief.feeds.length} LIVE  ·  OFFLINE FALLBACKS REMAIN AVAILABLE`, liveFeeds ? 10 : 12, 0);
+          term.println(`  USE [1] WEATHER CITY  [2] OPEN NEWS  [3] REFRESH  [4] PRACTICAL LINKS`, 14, 0);
+
+          this.renderFooter([
+            { key: '1', label: 'Change City', action: () => {
+              term.promptInline('TODAY HUB WEATHER', 'Enter city or region:', city, (nextCity) => {
+                if (nextCity) this.openTodayHub(nextCity);
+              }, () => this.openTodayHub(city));
+            }},
+            { key: '2', label: 'Open News', action: () => window.CyberBBS.Doors.openNews() },
+            { key: '3', label: 'Refresh Briefing', action: () => this.openTodayHub(city) },
+            { key: '4', label: 'Practical Links', action: () => this.showPracticalLinks(city) }
+          ]);
+        } catch (error) {
+          term.showNotice('BRIEFING LINK FAILED — NEWS AND WEATHER DOORS REMAIN AVAILABLE.');
+          this.renderFooter([
+            { key: '1', label: 'Retry', action: () => this.openTodayHub(city) }
+          ]);
+        }
+      });
+    }
+
+    showPracticalLinks(city) {
+      window.CyberBBS.App.pushScreen('PRACTICAL_LINKS', () => {
+        this.renderHeader('TODAY HUB // PRACTICAL LINKS');
+        const term = window.CyberBBS.Term;
+        const safeCity = encodeURIComponent(city);
+        const links = [
+          ['1', 'WEATHER RADAR / FORECAST', `https://www.google.com/search?q=weather+${safeCity}`],
+          ['2', 'GOOGLE NEWS SEARCH', 'https://news.google.com/'],
+          ['3', 'GITHUB TRENDING', 'https://github.com/trending'],
+          ['4', 'NASA LIVE NEWS', 'https://www.nasa.gov/news/'],
+          ['5', 'BBC WORLD NEWS', 'https://www.bbc.com/news/world']
+        ];
+        term.println(`  CURRENT WEB RESOURCES FOR TODAY`, 14, 0);
+        term.println(`  These links open official or public services in a new browser tab.`, 7, 0);
+        term.println(`  ────────────────────────────────────────────────────────────────────────────`, 8, 0);
+        links.forEach(([key, label, url], index) => {
+          const row = 5 + index * 2;
+          term.setCursor(2, row);
+          term.print(`[${key}] ${label}`, 15, 0);
+          term.addHitRegion(2, row, 76, 1, `practical-${key}`, () => window.open(url, '_blank', 'noopener'), label, key);
+        });
+        this.renderFooter();
+      });
+    }
+
+    // ==========================================
     // 2. [B] BULLETIN BOARD / FORUM (JSON ENGINE)
     // ==========================================
     openForum() {
@@ -1100,6 +1198,7 @@
         } else {
           term.print(res.asciiText);
         }
+        if (!res.isLive && res.notice) term.println(`\r\n${res.notice}`, 12, 0);
 
         this.renderFooter([
           { key: '1', label: 'Change City', action: () => {

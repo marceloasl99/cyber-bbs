@@ -13,6 +13,22 @@ Combines authentic vintage visuals and procedural Web Audio with **real, live In
 
 ---
 
+## 📸 Screenshots
+
+| 🖥️ Main Menu (80x25 Matrix) | 🌐 Real-Time World Clocks |
+|:---:|:---:|
+| ![Main Menu](docs/screenshots/05_main_menu.png) | ![World Clocks](docs/screenshots/06_world_clocks.png) |
+
+| 💬 Internet Forum / Bulletin Board | 🎨 ANSI Art Gallery |
+|:---:|:---:|
+| ![Forum](docs/screenshots/07_forum_board.png) | ![ANSI Gallery](docs/screenshots/08_ansi_gallery.png) |
+
+| ☎️ USRobotics 14.4k Handshake | 📜 System Bulletins |
+|:---:|:---:|
+| ![Modem Handshake](docs/screenshots/02_modem_handshake.png) | ![Bulletins](docs/screenshots/04_bulletins.png) |
+
+---
+
 ## 🚀 How to Run on Windows
 
 You have two convenient options:

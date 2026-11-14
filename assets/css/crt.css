@@ -1,0 +1,124 @@
+/* CYBER BBS — CRT Shaders & Color Themes */
+
+/* Scanline Effect Overlay */
+.scanlines {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  background: linear-gradient(
+    rgba(18, 16, 16, 0) 50%, 
+    rgba(0, 0, 0, 0.35) 50%
+  );
+  background-size: 100% 3px;
+  z-index: 10;
+  opacity: 0.85;
+}
+
+/* CRT Vignette & Edge Shadow */
+.vignette {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  box-shadow: inset 0 0 70px rgba(0, 0, 0, 0.85), inset 0 0 15px rgba(0, 0, 0, 0.95);
+  z-index: 11;
+}
+
+/* Phosphor Bloom / Subtle Glow */
+.crt-bloom #term-canvas {
+  filter: drop-shadow(0 0 2px rgba(255, 255, 255, 0.35));
+}
+
+/* Barrel Screen Curvature (Subtle CRT Bulb Curvature) */
+.crt-curved #crt-frame {
+  border-radius: 20px;
+}
+.crt-curved #term-canvas {
+  border-radius: 16px;
+  transform: perspective(1000px) scale(0.99);
+}
+
+/* Degauss / Power-On Animation */
+@keyframes crt-power-on {
+  0% {
+    transform: scaleY(0.005) scaleX(0);
+    filter: brightness(30);
+    opacity: 0.8;
+  }
+  40% {
+    transform: scaleY(0.01) scaleX(1);
+    filter: brightness(20);
+    opacity: 1;
+  }
+  70% {
+    transform: scaleY(1) scaleX(1);
+    filter: brightness(3);
+    opacity: 1;
+  }
+  100% {
+    transform: scaleY(1) scaleX(1);
+    filter: brightness(1);
+    opacity: 1;
+  }
+}
+
+.crt-powering-on #term-canvas {
+  animation: crt-power-on 0.5s cubic-bezier(0.23, 1, 0.32, 1) forwards;
+}
+
+/* Color Themes */
+
+/* 1. Theme: Color IBM VGA (Default) - Authentic 16-color palette */
+.theme-vga {
+  /* Retains default palette */
+}
+
+/* 2. Theme: Green Phosphor (P1 Matrix style) */
+.theme-green #term-canvas {
+  filter: sepia(1) hue-rotate(85deg) saturate(4.5) brightness(0.95) contrast(1.2);
+}
+.theme-green.crt-bloom #term-canvas {
+  filter: sepia(1) hue-rotate(85deg) saturate(4.5) brightness(0.95) contrast(1.2) drop-shadow(0 0 4px #00ff44);
+}
+
+/* 3. Theme: Amber CRT (Warm vintage terminal) */
+.theme-amber #term-canvas {
+  filter: sepia(1) hue-rotate(15deg) saturate(4.8) brightness(0.92) contrast(1.25);
+}
+.theme-amber.crt-bloom #term-canvas {
+  filter: sepia(1) hue-rotate(15deg) saturate(4.8) brightness(0.92) contrast(1.25) drop-shadow(0 0 4px #ff9900);
+}
+
+/* 4. Theme: Paper White (Monochrome laboratory terminal) */
+.theme-paper #term-canvas {
+  filter: grayscale(1) brightness(1.1) contrast(1.3);
+}
+
+/* 5. Theme: Flat LCD (Clean modern pixels, effects disabled) */
+.theme-flat .scanlines,
+.theme-flat .vignette {
+  display: none !important;
+}
+.theme-flat #term-canvas {
+  filter: none !important;
+  transform: none !important;
+  border-radius: 0 !important;
+}
+
+/* Reduced Motion Mode */
+@media (prefers-reduced-motion: reduce) {
+  .crt-powering-on #term-canvas {
+    animation: none !important;
+  }
+  .scanlines {
+    opacity: 0.3;
+  }
+  .crt-curved #term-canvas {
+    transform: none !important;
+  }
+}

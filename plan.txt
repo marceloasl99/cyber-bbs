@@ -1,0 +1,2158 @@
+quero criar um simulador de BBS (bulleting board system), identico aos dos anos 90.quero tudo em ingles.quero que funcione em um site (.html).quero o plano de implementacao detalhado em markdown para pedir para outra IA (cli no meu computador windows) executar e implementar, quero detalhado, funcoesque existiam, como noticias, baixar arquivos, repositorios (pode linkar com coisas do github por exemplo, site de noticias reais por rss feed.. ou seja, simulador mas funcional e real), por exemplo baixar fotos do google, simular o sinal de fax modem conectando, etc...
+
+sugestao de nome Cyber BBS
+
+nao quero codigo, so o plano completo em markdown
+
+
+Segue o plano completo, em inglês, pronto para salvar como `CYBER-BBS-PLAN.md` e entregar ao seu CLI agent. Ele foi escrito como **spec executável**: requisitos com IDs, fases com critérios de aceitação, endpoints reais, e guardrails para o agente não improvisar.
+
+---
+
+# CYBER BBS — Implementation Plan & Technical Specification
+
+**Version:** 1.0 · **Target:** single-file HTML app · **Language of all UI/content:** English (US) · **Codename:** `cyber-bbs`
+
+---
+
+## 0. AGENT BRIEF — READ FIRST
+
+You are an autonomous coding agent running on a **Windows** machine. Your job is to build **Cyber BBS**, a browser-based simulator of a 1990s dial-up Bulletin Board System that is *aesthetically faithful* and *functionally real* (live news, real file downloads, real repos, real photos).
+
+**Operating rules:**
+
+1. Implement **phase by phase** (§18). Do not start a phase before the previous phase's Definition of Done passes.
+2. After each phase: run the app, execute the in-app `SELFTEST`, fix failures, write a short entry to `CHANGELOG.md`, and `git commit` with message `feat(P<n>): <summary>`.
+3. **No frameworks, no bundlers, no npm install required for the core product.** Vanilla ES2020+, one `<script>`, one `<style>`.
+4. **No runtime CDN dependencies.** Every asset (font, art, seed data) is embedded in the HTML or vendored locally.
+5. Do not invent endpoints. Use §11 tables. If an endpoint fails at build time, probe it, document the result in `docs/ENDPOINTS.md`, and use the listed fallback.
+6. Never emit placeholder features. If something cannot work offline, it must degrade to bundled seed content with an in-character notice (§13.5) — never a blank screen or a raw JS error.
+7. Ask no clarifying questions unless a requirement is genuinely contradictory; otherwise choose the option most faithful to 1993–1996 BBS culture and log the decision in `docs/DECISIONS.md`.
+8. All user-visible strings live in a single `STRINGS` dictionary (§5.4) so tone stays consistent.
+
+---
+
+## 1. PRODUCT VISION
+
+**Cyber BBS** is a fictional-but-plausible 1995 multi-node BBS: 14.4k HST Dual Standard, USRobotics Courier, running on a 486DX2/66 in a basement, SysOp handle **DR. NOISE**. The user "dials in" from a simulated terminal, hears a synthesized modem handshake, hits an ANSI login screen, and lands in a classic hotkey menu system.
+
+The twist: the doors are **real**. News is live RSS. The file base pulls real public-domain / open-license artifacts. The GitHub Vault browses real repositories. The Photo Grabber searches real image APIs and saves real files to disk. Weather is real. Everything is wrapped in CP437, scanlines, and 16 colors.
+
+**Design pillars**
+
+| Pillar | Meaning |
+|---|---|
+| Authenticity | 80×25, CP437, ANSI SGR, SAUCE-aware art, baud-paced output, type-ahead, `[Y/N]` prompts, no mouse required |
+| Reality | Every "door" performs a genuine network operation or genuine local computation |
+| Craft | CRT power-on, phosphor bloom, synthesized modem audio, hand-made ANSI logo, sound design |
+| Resilience | Offline-first; the BBS is always callable, even with zero connectivity |
+| Exclusivity | Feels like a private, members-only system: access levels, ratios, credits, validation, node status |
+
+---
+
+## 2. HARD CONSTRAINTS
+
+| ID | Constraint |
+|---|---|
+| C-01 | Primary deliverable is **one self-contained file**: `cyber-bbs.html`. Double-clickable on Windows, works from `file://` |
+| C-02 | Total file size ≤ **3 MB** (font + seed art + seed data embedded as base64/strings) |
+| C-03 | No build step, no server required for Tier 1. Optional Tier 2 local helper (§13.6) |
+| C-04 | All UI text, ANSI art, help, errors, and copy in **English** |
+| C-05 | Works in current Chrome/Edge/Firefox on Windows 10/11. Chromium is the reference browser |
+| C-06 | No telemetry, no analytics, no external calls except the explicit data sources in §11 |
+| C-07 | No `eval`, no `new Function`, no `innerHTML` with remote content |
+| C-08 | Keyboard-only operation must be 100% sufficient. Mouse is optional sugar |
+| C-09 | Persistence via `localStorage` (primary). IndexedDB optional for uploads/blobs; must not be required on `file://` |
+| C-10 | Audio must be 100% synthesized (Web Audio). No external audio files |
+| C-11 | Boot to login prompt ≤ 1.5 s (modem sequence is user-skippable) |
+| C-12 | 60 fps terminal rendering during full-screen ANSI redraw |
+
+---
+
+## 3. TARGET ENVIRONMENT & WINDOWS NOTES
+
+- Save all source files as **UTF-8 without BOM**; `<meta charset="utf-8">` mandatory (CP437 is rendered from a font/atlas, not from the file encoding).
+- `file://` origin sends `Origin: null`. Only APIs returning `Access-Control-Allow-Origin: *` will work directly; everything else routes through the proxy chain (§13).
+- Chromium allows `localStorage` per-file on `file://`; Firefox too. If a browser blocks it, fall back to in-memory session state and show `SYSOP NOTICE: Persistent storage unavailable — running in VOLATILE mode.`
+- Audio requires a user gesture: the boot screen's **"PRESS ANY KEY TO DIAL"** satisfies autoplay policy.
+- Tier 1 run: double-click the HTML. Tier 1 alt run (better CORS behavior): serve the folder over `http://localhost` (see §20).
+
+---
+
+## 4. SESSION LIFECYCLE (THE SPINE)
+
+```
+POWER ON → CRT degauss/flash → BIOS-ish POST text → terminal ready
+   → "PRESS ANY KEY TO DIAL"  (audio unlocked)
+   → AT command line / dial dialog (number prefilled)
+   → DIALING → dial tone → DTMF → ringback → carrier handshake → CONNECT 14400
+   → banner ANSI (scrolling, baud-paced) → login
+        ├─ existing handle → password → welcome back + last call stats
+        └─ NEW → new user application → limited access (guest)
+   → system news / bulletins (pausable)
+   → MAIN MENU (hotkey shell)
+        └─ doors: News · Files · Photos · GitHub · Messages · Games · ANSI · Texts · Weather
+   → [X] LOGOFF → session stats ANSI → "Thanks for calling" → ATH → NO CARRIER
+   → idle attract mode (ANSI slideshow + "CALL CYBER BBS" ad)
+```
+
+**State machine states (authoritative list):** `OFF, POST, READY, DIALING, HANDSHAKE, CONNECTED, BANNER, LOGIN, NEWUSER, BULLETINS, MAIN, DOOR_*, CHAT, LOGOFF, HANGUP, ATTRACT`.
+
+Every state defines: `enter()`, `exit()`, `render()`, `handleKey()`, `timeout`, and allowed transitions. Illegal transitions must be impossible by construction (router validates against a transition table).
+
+---
+
+## 5. ARCHITECTURE
+
+### 5.1 Module map (all inside one IIFE, namespaced)
+
+| Module | Responsibility |
+|---|---|
+| `Kernel` | boot, RAF loop, module registry, error boundary, event bus |
+| `Term` | 80×25 cell buffer, ANSI/CP437 parser, cursor, scroll regions, dirty tracking |
+| `Render` | canvas glyph atlas, palette, CRT post-effects, scaling |
+| `Input` | keyboard capture, type-ahead buffer, hotkey dispatch, paste, mobile shim |
+| `Modem` | AT command emulation, dial state machine, handshake scheduler |
+| `Audio` | Web Audio graph: tones, DTMF, noise, key clicks, bells, ANSI music |
+| `Router` | screen/state machine, door stack, back/exit semantics |
+| `Store` | localStorage schema, migrations, export/import |
+| `Net` | fetch orchestration, proxy chain, cache, rate limits, retries, offline detection |
+| `Parsers` | RSS/Atom/RDF, JSON APIs, SAUCE, README/markdown→text |
+| `Xfer` | download pipeline, Blob assembly, Zmodem-style progress theater |
+| `Ansi` | ANSI art loader/player, image→ANSI converter, art gallery |
+| `Doors` | News, Files, Photos, GitHub, Messages, Games, Texts, Weather, OneLiners |
+| `Session` | user record, access level, time bank, credits, ratio, stats |
+| `SysOp` | hidden console: config, feeds, keys, seeds, diagnostics, `SELFTEST` |
+| `A11y` | live-region mirror, reduced motion, contrast, mute |
+
+### 5.2 Data flow
+
+`Input → Router → Door → Net/Parsers → Store(cache) → Term(buffer) → Render(canvas)`
+Doors never touch the DOM directly; they emit terminal writes. This guarantees visual consistency and makes the whole app screen-reader-mirrorable.
+
+### 5.3 Rendering strategy (mandatory)
+
+- Logical grid **80×25**, cell **8×16 px** → 640×400 backing surface, integer-scaled (2× default) with letterboxing to preserve 4:3.
+- Pre-render a **glyph atlas**: all 256 CP437 glyphs × 16 fg × 16 bg is too large → render glyphs in white to an offscreen atlas once, then tint per cell via a second pass or per-color cached atlases (16 atlases, one per fg color). Background painted as rects.
+- Cell record: `{char, fg, bg, bold, blink, underline, reverse}`. Dirty-cell redraw only.
+- Optional **80×50** mode for the ANSI gallery (8×8 font) and **132×37** "wide" mode for file listings if trivially supported.
+- Font: **Px437 IBM VGA 8×16** (int10h Oldschool PC Fonts, CC BY-SA 4.0) embedded as base64 WOFF2; attribution in `LICENSE-THIRD-PARTY.md` and in the in-app `[I] About` screen. Fallback: `monospace` with a warning in SysOp console. Await `document.fonts.ready` before building the atlas.
+
+### 5.4 Strings & tone
+
+Single `STRINGS` object. Voice: terse, technical, slightly cocky SysOp. Use period-appropriate vocabulary: *node, baud, credits, ratio, leech, echomail, netmail, door, RIP, ANSI, sysop, validation, one-liner, TW2002*. Never modern SaaS language (no "dashboard", "onboarding", "Oops!").
+
+---
+
+## 6. TERMINAL ENGINE SPEC
+
+### 6.1 ANSI subset to implement (T-01…T-14)
+
+| ID | Sequence | Behavior |
+|---|---|---|
+| T-01 | `ESC[{n}m` SGR | 0 reset, 1 bold/bright fg, 4 underline, 5 blink, 7 reverse, 22/24/25/27 off |
+| T-02 | SGR 30–37 / 40–47 | standard palette (§8.1) |
+| T-03 | SGR 90–97 / 100–107 | bright palette |
+| T-04 | SGR 38;5;n / 48;5;n | xterm-256 (map nearest to 16 unless HiColor mode) |
+| T-05 | SGR 38;2;r;g;b | 24-bit, only when HiColor enabled (Photo door) |
+| T-06 | `ESC[{r};{c}H` / `f` | absolute cursor addressing (1-based, clamped) |
+| T-07 | `ESC[{n}A/B/C/D` | relative cursor moves |
+| T-08 | `ESC[{n}J` | erase display 0/1/2 |
+| T-09 | `ESC[{n}K` | erase line 0/1/2 |
+| T-10 | `ESC[s` / `ESC[u` | save/restore cursor |
+| T-11 | `ESC[{t};{b}r` | scroll region |
+| T-12 | `ESC[6n` | cursor position report into input buffer |
+| T-13 | `ESC[?7h/l` | autowrap on/off |
+| T-14 | iCE colors (`ESC[?33h/l` or SAUCE flag) | disable blink → enable bright backgrounds |
+
+Also: `CR`, `LF`, `BS`, `TAB` (8), `BEL` (audio beep), `0x1A` EOF truncation, and C1/unknown sequences swallowed silently (never printed as garbage).
+
+### 6.2 Output pacing
+
+- `bps` setting → `cps = bps / 10`. Profiles in §7.4.
+- Default **Nostalgic mode = 2400 bps (240 cps)** for readable streaming; **Authentic mode** = negotiated rate with instant full-screen ANSI dumps (real BBSs at 14.4k felt instant).
+- Chunked writes via RAF budget, never `setTimeout` per char.
+- **Type-ahead buffer** (64 chars) accepted during output — authentic and important for usability.
+- `ESC` or `Space` skips pacing for the current screen ("abort output" is a real BBS behavior).
+- `[K]ontinue, [N]onstop, [Q]uit?` pager on any list > 22 lines.
+
+### 6.3 Line noise
+
+Injectable garbage characters + `NO CARRIER` events at a configurable rate (default **off**; SysOp toggle "Line noise: 0–5%"). Must never corrupt state, only visuals.
+
+---
+
+## 7. MODEM & AUDIO SPEC
+
+### 7.1 AT command emulation
+
+Support: `AT`, `ATE0/1`, `ATV0/1`, `ATZ`, `ATH`, `ATDT<number>`, `ATDP<number>`, `ATS0=n`, `AT&F`, `+++` escape, `ATO`. Unknown commands → `ERROR`. Responses: `OK`, `CONNECT <rate>`, `NO CARRIER`, `BUSY`, `NO DIALTONE`, `RING`.
+
+Default dial number: **`+1 (555) 019-2847`** (fictional). A "phone book" lets users add entries; each entry can carry a **theme** (different ANSI banner + SysOp handle) — cheap, high-delight feature.
+
+### 7.2 Handshake timeline (default profile: V.32bis 14400)
+
+| t (s) | Event | Synthesis |
+|---|---|---|
+| 0.0–1.2 | Dial tone | 350 Hz + 440 Hz sine, −12 dBFS |
+| 1.2–2.1 | DTMF dialing | 7 digits, 70 ms on / 50 ms off, standard US pairs (697/770/852/941 × 1209/1336/1477) |
+| 2.1–4.1 | Ringback (1 ring) | 440 + 480 Hz, 2 s on |
+| 4.1–4.4 | Silence / pickup click | short filtered click |
+| 4.4–7.0 | V.25 answer tone | 2100 Hz, 180° phase reversal every 450 ms |
+| 7.0–8.2 | V.8 CM/JM chirps | V.21 FSK 1650/1850 Hz, 300 baud, alternating bursts |
+| 8.2–9.4 | Line probing (L1/L2) | tone ladder 150–3750 Hz, 150 Hz steps, 40 ms each |
+| 9.4–11.6 | Training / scrambling | band-limited white noise 300–3400 Hz, amplitude LFO, 3 bursts |
+| 11.6–12.4 | Ranging + final tones | descending sine sweep + short noise tail |
+| 12.4–12.8 | Silence | — |
+| 12.8 | `CONNECT 14400/ARQ/V42B/NONE` | typed at negotiated cps, then banner |
+
+**Total ≈ 13 s.** Provide `Quick connect` (3 s compressed version) and `Silent dial`. `ESC` at any time → immediate `CONNECT` (skip). All timing values must be data-driven from a profile table, not hardcoded inline.
+
+### 7.3 Audio graph & sound inventory
+
+Master gain → soft clipper (WaveShaper) → 300–3400 Hz bandpass ("telephone") → destination. Separate bypass bus for UI sounds.
+
+| Sound | Trigger | Method |
+|---|---|---|
+| Key click | keypress | 4 ms noise burst + 1.8 kHz ping, −28 dB |
+| Terminal beep | `BEL` | 880 Hz square, 90 ms |
+| SysOp page | `[C]` chat | 3 ascending bells, repeating until answered/timeout |
+| Carrier loss | hangup | noise burst + descending tone + relay click |
+| Transfer tick | Zmodem theater | 30 ms tick every 8 blocks |
+| Error buzz | invalid input | 120 Hz square, 120 ms |
+| ANSI music | ANSI art with music codes | square/tri oscillator, note table, optional |
+| CRT power on | boot | 60 Hz thump + 15 kHz whine fade (respect mute) |
+
+Global mute + volume in Settings; persisted.
+
+### 7.4 Modem profiles
+
+| Profile | Connect string | Handshake length | Display cps (Authentic) |
+|---|---|---|---|
+| Bell 103 | `CONNECT 300` | 5 s (simpler tones) | 30 |
+| V.22 | `CONNECT 1200` | 7 s | 120 |
+| V.22bis | `CONNECT 2400` | 8 s | 240 |
+| V.32 | `CONNECT 9600/ARQ` | 11 s | 960 |
+| **V.32bis (default)** | `CONNECT 14400/ARQ/V42B` | 13 s | 1440 |
+| V.34 | `CONNECT 28800/ARQ/V42B/LAPM` | 15 s | 2880 |
+| V.34+ | `CONNECT 33600` | 16 s | 3360 |
+| V.90 | `CONNECT 56000/V90` | 19 s (adds digital "bong") | 5600 |
+
+---
+
+## 8. VISUAL DESIGN SPEC
+
+### 8.1 Palette (authentic IBM VGA 16)
+
+| Idx | Name | Hex | Idx | Name | Hex |
+|---|---|---|---|---|---|
+| 0 | Black | `#000000` | 8 | Bright Black | `#555555` |
+| 1 | Blue | `#0000AA` | 9 | Bright Blue | `#5555FF` |
+| 2 | Green | `#00AA00` | 10 | Bright Green | `#55FF55` |
+| 3 | Cyan | `#00AAAA` | 11 | Bright Cyan | `#55FFFF` |
+| 4 | Red | `#AA0000` | 12 | Bright Red | `#FF5555` |
+| 5 | Magenta | `#AA00AA` | 13 | Bright Magenta | `#FF55FF` |
+| 6 | Brown | `#AA5500` | 14 | Yellow | `#FFFF55` |
+| 7 | Light Gray | `#AAAAAA` | 15 | White | `#FFFFFF` |
+
+**House style:** cyan frames, bright-white titles, yellow hotkeys, light-gray body, bright-green success, bright-red errors, magenta accents for SysOp. Brown/amber monochrome theme as an alternate.
+
+### 8.2 CRT effects (all toggleable, layered, GPU-cheap)
+
+- Scanlines (CSS repeating gradient, 2 px period, 12% opacity)
+- Phosphor bloom (canvas duplicate blurred at low opacity, or CSS `filter: drop-shadow`)
+- Barrel curvature (subtle SVG/CSS transform; skip if it costs fps)
+- Vignette + corner darkening
+- Flicker (0.6% luminance oscillation, 55 Hz — **disabled** under `prefers-reduced-motion`)
+- Chromatic fringe (±0.5 px R/B offset, optional)
+- Power-on: white horizontal line expands vertically, 380 ms, with degauss wobble
+- Themes: `Color CRT` (default), `Amber Mono`, `Green Mono`, `Paper White`, `Flat LCD` (no effects)
+
+### 8.3 Chrome
+
+Terminal fills the viewport inside a black bezel. Optional **status strip** rendered *inside* the 80×25 grid (line 25): `NODE 1 · 14400 ARQ · NET:ON · 28:41 · CR:1240`. No modern UI widgets anywhere except the hidden SysOp console and file pickers.
+
+---
+
+## 9. SCREEN INVENTORY & LAYOUTS
+
+> All mockups are indicative; final layouts must be exactly 80 columns, box-drawing CP437, no misaligned borders.
+
+### 9.1 Login banner
+
+```
+ ████  ██  ██ █████  ██████ █████    █████  █████   █████
+██  ██ ██  ██ ██  ██ ██     ██  ██   ██  ██ ██  ██ ██
+██      ████  █████  █████  █████    █████  █████   ████
+██  ██   ██   ██  ██ ██     ██ ██    ██  ██ ██  ██     ██
+ ████    ██   █████  ██████ ██  ██   █████  █████  █████
+
+        ── N O D E   1 ── 14.4k HST DUAL STANDARD ──
+          SysOp: DR. NOISE  ·  Est. 1993  ·  24h/7d
+       "Where the modem screams and the packets flow."
+
+  Login (or NEW): _
+```
+
+### 9.2 Main menu
+
+```
+┌────────────────────────[ CYBER BBS // MAIN ]─────────────────────────┐
+│ Handle: NEUROMANCER      Access: 100 MEMBER       Node 1  14400 ARQ  │
+│ Time left: 28:41         Ratio: 1:3               Credits: 1,240     │
+├──────────────────────────────────────────────────────────────────────┤
+│  [N] News & Feeds       [F] File Areas        [P] Photo Grabber      │
+│  [G] GitHub Vault       [M] Message Base      [D] Door Games         │
+│  [A] ANSI Gallery       [T] Text Library      [W] Weather Station    │
+│  [O] One-Liners         [U] User Stats        [C] Chat / Page SysOp  │
+│  [L] Last Callers       [B] Bulletins         [S] Settings           │
+│  [I] About / Credits    [?] Help              [X] Logoff             │
+└──────────────────────────────────────────────────────────────────────┘
+  Command> _
+```
+
+### 9.3 Complete screen list (each needs layout + help + exit path)
+
+| # | Screen | Notes |
+|---|---|---|
+| S-01 | POST / boot | memory count, "HAYES COMPATIBLE MODEM DETECTED" |
+| S-02 | Dial dialog | number, profile, quick/silent toggles |
+| S-03 | Handshake | live `AT` log lines + spectrum-ish VU bar in ASCII |
+| S-04 | Banner | scrolling ANSI logo |
+| S-05 | Login / password | masked input, 3 attempts → `NO CARRIER` |
+| S-06 | New user application | §10.1 |
+| S-07 | Bulletins / system news | 3 seeded bullets + real "today's headline" |
+| S-08 | Main menu | above |
+| S-09 | News list / reader | §11.1 |
+| S-10 | File areas / file list / file detail | §11.2 |
+| S-11 | Transfer screen | Zmodem theater |
+| S-12 | Photo search / ANSI preview / save | §11.3 |
+| S-13 | GitHub search / repo / tree / README | §11.4 |
+| S-14 | Message base list / thread / compose | §11.5 |
+| S-15 | Doors menu + each game | §11.6 |
+| S-16 | ANSI gallery viewer | §11.7 |
+| S-17 | Text library reader | §11.8 |
+| S-18 | Weather station | §11.9 |
+| S-19 | One-liners | 1 line, 70 chars max |
+| S-20 | User stats / last callers | ASCII bar graphs |
+| S-21 | Settings ("User Defaults") | §10.4 |
+| S-22 | Chat split-screen | §11.10 |
+| S-23 | Logoff + session stats | ANSI goodbye |
+| S-24 | Attract mode | ANSI slideshow + dial ad |
+| S-25 | SysOp console (hidden) | `Ctrl+Alt+S` |
+
+---
+
+## 10. SESSION, IDENTITY, ECONOMY
+
+### 10.1 New user application (authentic friction, short)
+
+Fields: Handle (2–16 chars, unique), Password (min 4, SHA-256+salt via SubtleCrypto, **local only**), Real name (optional, "or alias"), City/Location, Terminal type (`ANSI` / `TTY` / `AVATAR`→ANSI), Screen size (`80x25` default), Transfer protocol (`ZMODEM` default), "Who referred you?" (free text), and one validation question ("What does BBS stand for?" — any non-empty answer accepted, SysOp humor in response).
+
+Then: `Application queued for SysOp validation.` Guest access **level 10** (browse + news + texts + ANSI). After the user downloads/uploads anything or plays a door once, auto-"validate" to **level 100 MEMBER** with an in-character netmail from DR. NOISE. This gives progression without blocking usability.
+
+### 10.2 Access levels
+
+| Level | Name | Rights |
+|---|---|---|
+| 0 | NEW | login only |
+| 10 | GUEST | news, texts, ANSI, weather, one-liners (read) |
+| 100 | MEMBER | + downloads (ratio), messages, games, photos, GitHub |
+| 200 | CO-SYSOP | + no ratio, extended time |
+| 255 | SYSOP | everything, console, unlimited time |
+
+### 10.3 Time bank & ratio
+
+- Daily time: **30 min** (MEMBER), 60 (CO-SYSOP), unlimited (SYSOP). Resets on local date change. Warnings at 5:00 and 1:00, forced logoff at 0:00 with `TIME EXPIRED — CALL BACK TOMORROW`.
+- Credits: start 500. Download cost = ceil(KB / 10) credits, min 1. Upload grants ceil(KB/5). Ratio target **1:3** (uploads:downloads by bytes) — enforced only after 5 downloads (avoid frustrating first run). "Leech alert" message when exceeded; SysOp console can grant credits.
+- Tracked stats: calls, minutes online, downloads, uploads, bytes, messages posted, doors played, favorite door, longest session.
+
+### 10.4 Settings screen ("User Defaults")
+
+Toggles/values: baud profile, pacing mode, CRT theme, effects on/off, scanline intensity, sound volume/mute, key click, line noise %, HiColor photos, dithering, pager on/off, hotkey vs command-line mode, default download area, feeds subscription set, city for weather, timezone, reset progress, export/import save file (JSON download/upload).
+
+---
+
+## 11. FUNCTIONAL DOORS — REAL DATA SOURCES
+
+> Every door: list → detail → action, with `[Q]` quit to main, `[?]` help, pager, and offline fallback. All network calls go through `Net` (§13).
+
+### 11.1 [N] NEWS & FEEDS — live RSS/Atom
+
+**Feeds (default subscription set):**
+
+| Key | Source | URL | Format |
+|---|---|---|---|
+| SLASH | Slashdot | `https://rss.slashdot.org/Slashdot/slashdotMain` | RSS 1.0/RDF |
+| HN | Hacker News | `https://hnrss.org/frontpage` | RSS 2.0 |
+| BBC | BBC World | `https://feeds.bbci.co.uk/news/world/rss.xml` | RSS 2.0 |
+| ARS | Ars Technica | `https://feeds.arstechnica.com/arstechnica/index` | RSS 2.0 |
+| VERGE | The Verge | `https://www.theverge.com/rss/index.xml` | Atom |
+| NPR | NPR News | `https://feeds.npr.org/1001/rss.xml` | RSS 2.0 |
+| WIRED | WIRED | `https://www.wired.com/feed/rss` | RSS 2.0 |
+| RETRO | r/retrobattlestations | `https://www.reddit.com/r/retrobattlestations/.rss` | Atom (proxy likely) |
+
+**Behavior:** aggregated "ALL WIRES" view sorted by date; per-feed views; list shows `idx · date · source · title` truncated to 78 cols. Reader shows title, source, dateline, then body text **wrapped to 78 cols**, stripped of all HTML (DOMParser → textContent, allowlist nothing), decoded entities, collapsed whitespace. Actions: `[N]ext [P]rev [O]pen in browser [S]ave as .txt [B]ack`. Add/remove feeds in SysOp console (validate URL, test-fetch before saving).
+
+**Offline fallback:** bundled `ARCHIVE DIGEST` — 20 evergreen retro-computing items with real historical dates (1993–1996 events: Netscape IPO, Win95 launch, TW2002 release, 56k wars), clearly labeled `*** ARCHIVE COPY — LIVE WIRE UNAVAILABLE ***`.
+
+### 11.2 [F] FILE AREAS — real downloads
+
+**Areas:** `01 SYSOP TEXTS` · `02 ANSI ART` · `03 DOS UTILITIES` · `04 DEMOSCENE` · `05 DOCS & EBOOKS` · `06 GITHUB MIRRORS` · `07 YOUR UPLOADS`.
+
+**Sources:**
+
+| Source | Use | Endpoint pattern |
+|---|---|---|
+| Internet Archive | DOS-era shareware/utilities, demos, artpacks | search `https://archive.org/advancedsearch.php?q=<q>&fl[]=identifier&fl[]=title&rows=25&output=json`; files `https://archive.org/metadata/<id>`; download `https://archive.org/download/<id>/<file>` |
+| textfiles.com mirror | classic BBS text files | `https://archive.org/download/textfiles.com/...` (prefer over plaintext http origin) |
+| Project Gutenberg | ebooks | `https://gutendex.com/books?search=<q>` → `.txt` links |
+| GitHub raw | any repo file | `https://raw.githubusercontent.com/<o>/<r>/<branch>/<path>` |
+| Local uploads | user files | IndexedDB / object URL |
+
+**File record fields:** id, area, name (8.3-styled display name), real filename, size bytes, date, description (≤ 3 lines), source, url, license, downloads count, credits cost, `NFO` text optional.
+
+**Seed catalog:** ≥ 40 real, verified, legally redistributable items resolved at build time and embedded (metadata only; bytes fetched on demand). Agent must HEAD-check each and drop dead entries into `docs/ENDPOINTS.md`.
+
+**Download pipeline (Xfer):**
+1. Confirm screen: name, size, cost, ratio impact, `[D]ownload [V]iew [C]ancel`.
+2. Fetch with progress (ReadableStream when `Content-Length` present; else indeterminate).
+3. Render **Zmodem theater**: `Receiving: FILENAME.ZIP · Blocks 128/512 · 14,204 cps · ETA 00:07 · Errors 0` with `▓░` bar, occasional `NAK/Retry` flavor (cosmetic only, never fake failure).
+4. Save via Blob + `<a download>`; also offer `[V]iew` for text/ANSI/NFO.
+5. Log to download history, decrement credits, increment counters, write a fake `FILE_ID.DIZ` entry into the session log.
+6. On failure: in-character `TRANSFER ABORTED — CRC ERROR` + retry option + real reason in SysOp console only.
+
+**Upload (real):** `[U]pload` opens file picker → store bytes+metadata locally → grant credits → appears in area 07 → re-downloadable. This makes the ratio economy genuinely functional.
+
+**Viewers:** `.txt/.nfo/.diz` → CP437 text viewer with pager; `.ans` → ANSI player (§11.7); images → ANSI preview (§11.3); anything else → hex-dump preview (first 512 bytes, authentic `DEBUG`-style) + save.
+
+### 11.3 [P] PHOTO GRABBER — real image search + save + ANSI preview
+
+**Sources (in priority order):**
+
+| Provider | Endpoint | Key? |
+|---|---|---|
+| Wikimedia Commons | `https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrsearch=<q>&gsrnamespace=6&prop=imageinfo&iiprop=url|size|extmetadata&format=json&origin=*` | no |
+| NASA Images | `https://images-api.nasa.gov/search?q=<q>&media_type=image` | no |
+| Openverse | `https://api.openverse.org/v1/images/?q=<q>&page_size=20` | no (rate-limited; verify at build) |
+| Lorem Picsum | `https://picsum.photos/seed/<q>/640/480` | no |
+| **Google Images (optional)** | `https://www.googleapis.com/customsearch/v1?key=<K>&cx=<CX>&searchType=image&safe=active&q=<q>` | **BYO key + CSE id** |
+
+**Policy:** Do **not** scrape Google Images HTML (ToS violation, brittle). The Google option is an official Programmable Search JSON API, disabled until the user pastes a key + CX in the SysOp console, with an on-screen note about the 100 queries/day free quota. Default provider = Wikimedia (CORS-friendly, permissive licenses, attribution shown).
+
+**Flow:** query → 20 results as a numbered text list (title, dimensions, source, license) → select → **ANSI preview** → `[S]ave full image [T]humbnail ANSI save [O]pen original [N]ext`.
+
+**Image→ANSI converter (spec):**
+1. Draw to offscreen canvas at **80×50** pixels (or 160×100 in HiColor wide mode).
+2. Optional Floyd–Steinberg dithering (toggle).
+3. For each pair of vertical pixels, emit `▀` with fg = top pixel color, bg = bottom pixel color → 80×25 cells.
+4. 16-color mode: nearest-color by weighted RGB distance (luma-weighted, tuned for VGA palette). HiColor mode: 24-bit SGR (T-05).
+5. Respect aspect ratio with letterbox padding in black.
+6. Cache previews (data URL key) in memory; save ANSI as `.ans` with a proper SAUCE record.
+
+This is the single highest-wow feature — budget real time for it.
+
+### 11.4 [G] GITHUB VAULT — real repos
+
+| Action | Endpoint |
+|---|---|
+| Search repos | `https://api.github.com/search/repositories?q=<q>&per_page=20&sort=stars` |
+| Repo detail | `https://api.github.com/repos/<o>/<r>` |
+| Tree listing | `https://api.github.com/repos/<o>/<r>/contents/<path>` |
+| README | `https://api.github.com/repos/<o>/<r>/readme` (base64 → decode → markdown-to-text) |
+| Raw file | `https://raw.githubusercontent.com/<o>/<r>/<default_branch>/<path>` |
+| Whole repo ZIP | `https://codeload.github.com/<o>/<r>/zip/refs/heads/<branch>` (if CORS blocked: open in new tab as fallback) |
+
+**UX:** `GITHUB VAULT // QUERY>` → results `idx ★stars lang name — desc(60)` → repo screen shows stars/forks/license/updated + `[R]EADME [B]rowse [Z]IP [S]tar-info` → tree browser with dirs first, `[Enter]` descend, `[Backspace]` up, `[D]ownload file`.
+
+**Curated shelf (offline seed):** 25 hand-picked repos relevant to the theme (DOS/retro/ANSI/terminal/BBS/telnet, e.g. ansilove, dosbox, js-dos, sixteencolors archives, textfiles mirrors, retrowave demos). Metadata embedded so the shelf browses offline; file fetch requires net.
+
+**Rate limits:** unauthenticated 60 req/h → cache aggressively (TTL table §13.4), show remaining quota in status strip when < 10. Optional PAT stored locally, sent **only** to `api.github.com` directly (never through a proxy).
+
+### 11.5 [M] MESSAGE BASE — FidoNet-flavored, locally persistent
+
+**Echoes (conferences):** `GENERAL.CHATTER`, `RETRO.COMPUTING`, `ANSI.ART`, `DOORS.GAMES`, `NET.117.BACKBONE` (flavor), `SYSOP.NEWS`.
+
+- Threaded list: `msg# · from → to · date · subject · (replies)`. Reader with quote prefixes `>>`, origin lines, tearlines (`--- Cyber BBS 1.0`), and fake-but-plausible FidoNet kludges (`@PID: CyberBBS 1.0`, `@MSGID: 1:117/101.<hash>`).
+- Compose: full-screen line editor, 78-col wrap, `[S]ave [A]bort`, signature auto-append, max 40 lines.
+- **Local echo bots:** 6 seeded personas (handles, distinct voices, typing quirks) who reply to new posts after a delay (30 s–3 min of session time) with contextual-but-canned responses keyed to topic keywords. Deterministic seeded RNG so it feels alive but never nonsense.
+- **Netmail:** private messages to SysOp; SysOp auto-replies to keywords (`help`, `ratio`, `credits`, `validate`, `door`).
+- Optional (off by default, BYO key): LLM-backed SysOp/bot replies. Must be clearly marked `SIMULATED NODE` in the About screen; never required.
+- Seed: ≥ 5 threads / 25 messages of authentic 1995 voice, dated in-period.
+
+### 11.6 [D] DOOR GAMES — real, playable, local
+
+| Door | Type | Scope |
+|---|---|---|
+| **CYBER LORD** | LORD-inspired daily RPG | 12 monsters, 4 weapons/armor tiers, forest fights (10/day), inn, healer, bank, daily "new day" reset, ASCII monster art, save per user |
+| **STAR TRADE** | TradeWars-lite | 30 sectors, 3 ports, commodities (fuel/organics/equipment), turns/day (100), buy low/sell high, pirates, ASCII sector map |
+| **GLOBAL WAR** | number-guess artillery | wind, angle, power, ASCII trajectory |
+| **BLACKJACK** | cards | credits wager, ASCII card faces |
+| **HANGMAN** | words | retro-computing dictionary, ASCII gallows |
+| **FORTUNE** | one-shot | 120 curated quotes |
+
+Each door: `[Enter]` from menu, own save slot, `[Q]` exits back to BBS (never loses BBS session), high-score table shared across local users, "door opened/closed" log lines, and generated `DOOR.SYS`-style stats shown in the door's about screen for flavor.
+
+**Optional stretch (Phase 9, not required):** js-dos/DOSBox WASM to run a real shareware door with a generated `DOOR.SYS` dropfile. Only if licensing is clean and file size budget allows (it won't fit in 3 MB → make it a separate optional `cyber-bbs-dos.html`).
+
+### 11.7 [A] ANSI GALLERY — real artpacks
+
+- Primary: **Internet Archive `artpacks` collection** (`https://archive.org/metadata/artpacks` → per-pack ZIP paths). Secondary: 16colo.rs JSON/HTML endpoints — **probe and document**; if unstable, keep a curated list of direct `.ans` URLs from GitHub mirrors.
+- Bundled offline: **12 hand-picked ANSI/ASCII pieces** embedded as strings (permissive/CC art with credit lines) + 3 original Cyber BBS screens (logo, logoff, newbie ad) authored by the agent.
+- Viewer: **SAUCE-aware** (parse 128-byte trailer: title, author, group, date, datatype, font, iCE flag, canvas width). Honor 80×25 / 80×50 / 132-col; auto-scroll at baud pace with `[Space]` pause; `[I]` info panel; `[S]` save `.ans`; `[←/→]` prev/next.
+- Slideshow mode feeds Attract Mode (§9 S-24).
+
+### 11.8 [T] TEXT LIBRARY
+
+Gutenberg search + curated textfiles mirror shelf (BBS lists, phile classics that are legally redistributable, jargon file). Reader: 78-col wrap, pager, `[F]ind` in-text search with highlight (reverse video), `[S]ave .txt`, bookmark position per user.
+
+### 11.9 [W] WEATHER STATION
+
+- Primary: `https://wttr.in/<City>?AT` → returns ready-made ANSI weather (verify CORS; render directly through `Term`).
+- Fallback: `https://api.open-meteo.com/v1/forecast?latitude=<>&longitude=<>&current=temperature_2m,wind_speed_10m,weather_code&daily=temperature_2m_max,temperature_2m_min&timezone=auto` → render own ASCII weather panel with CP437 icons.
+- Geocoding: `https://geocoding-api.open-meteo.com/v1/search?name=<city>&count=5`.
+- Offline: `SENSOR OFFLINE — LAST READING CACHED <timestamp>` + cached value, or seeded "BASEMENT: 19°C, HUMID, FAN NOISE 62 dB".
+
+### 11.10 [C] CHAT / PAGE SYSOP
+
+Split screen at line 14 (`── SysOp ──` / `── User ──`), char-by-char typing with per-character sound, `Ctrl+K` clear, `[ESC]` end chat. SysOp "available" windows (e.g., 20:00–23:00 local) with keyword-driven bot outside them; page bell repeats 4× then `SysOp is not answering. Leave NETMAIL? [Y/N]`.
+
+### 11.11 [O] ONE-LINERS / [L] LAST CALLERS / [U] STATS
+
+One-liner wall (last 20, 70 chars, handle + color), add yours (rate limit 1 per session). Last callers table (10 rows: handle, city, baud, minutes, action). Stats with ASCII bar charts (`█▓▒░`) for calls/day, top doors, bytes transferred.
+
+---
+
+## 12. PERSISTENCE SCHEMA (`localStorage`, prefix `cyberbbs.v1.`)
+
+| Key | Shape (describe, don't code) | Cap |
+|---|---|---|
+| `users` | array of user records: handle, salt, hash, realname, city, access, created, lastCall, prefs, stats, credits, ratioBytes | 50 users |
+| `session` | current handle, loginAt, minutesUsed, dateKey, nodeState | 1 |
+| `settings` | global app config incl. CRT/audio/pacing/theme | 1 |
+| `messages` | conferences → threads → messages (id, from, to, subject, body, ts, parentId) | 500 msgs |
+| `oneliners` | array of {handle, text, ts} | 100 |
+| `news.cache` | per-feed: fetchedAt, items[] | 8 feeds × 30 |
+| `gh.cache` | query/repo/tree → payload + fetchedAt | 60 entries LRU |
+| `photo.cache` | query → results metadata | 20 entries LRU |
+| `files.catalog` | seed + discovered file records | 500 |
+| `xfer.log` | downloads/uploads history | 200 |
+| `games.<door>` | per-user save blob | 6 doors × users |
+| `keys` | optional API credentials (GitHub PAT, Google key/CX, LLM key) | 1 |
+| `calls` | last callers ring buffer | 50 |
+| `uploads` | metadata only; bytes in IndexedDB store `uploads` | 50 MB soft cap |
+
+Rules: versioned key prefix + `migrate()` stub; wrap every write in try/catch (QuotaExceeded → evict caches oldest-first, then warn in-character); `Export save` produces `CYBERBBS.SAV` (JSON, `.SAV` extension for flavor) and `Import save` validates schema before applying. Never store passwords in plaintext. Never send keys to third-party proxies.
+
+---
+
+## 13. NETWORKING LAYER (`Net`)
+
+### 13.1 Request pipeline
+
+`request(sourceId, url, opts)` → check cache (fresh?) → if stale, serve stale + revalidate → build attempt chain → fetch with `AbortController` timeout **8 s** → validate status/content-type → parse → normalize → cache → return `{ok, data, meta:{source, cached, latency, via}}`.
+
+### 13.2 Proxy fallback chain (for CORS-blocked sources)
+
+1. **Direct** (only if source is marked CORS-safe)
+2. `https://api.allorigins.win/raw?url=<enc>`
+3. `https://corsproxy.io/?url=<enc>`
+4. `https://api.codetabs.com/v1/proxy?quest=<enc>`
+5. `https://r.jina.ai/<url>` (text extraction — good for article bodies)
+6. **Tier 2 local helper** if running (§13.6)
+7. Offline fallback (§13.5)
+
+Mark each proxy's health with a rolling success score; reorder chain automatically; never retry more than **2** proxies per request; never send credentials through 2–5.
+
+### 13.3 Politeness & limits
+
+Per-host concurrency 2, global 4; min 400 ms between requests to the same host; exponential backoff (1 s, 3 s) on 429/5xx; honor `Retry-After`; hard session cap 300 requests; `NET` indicator flips to `OFF` after 3 consecutive total failures and auto-probes every 60 s.
+
+### 13.4 Cache TTLs
+
+| Data | TTL |
+|---|---|
+| RSS feeds | 15 min |
+| Article body | 24 h |
+| GitHub search | 10 min |
+| GitHub repo/tree/README | 30 min |
+| Image search | 30 min |
+| Weather | 30 min |
+| Archive metadata | 7 d |
+| ANSI art bytes | 30 d |
+| File bytes | never cached (stream to disk) |
+
+### 13.5 In-character error copy (never expose stack traces)
+
+| Condition | On-screen text |
+|---|---|
+| No connectivity | `*** NO CARRIER ON DATA LINK — SWITCHING TO LOCAL ARCHIVE ***` |
+| All proxies failed | `*** NODE RELAY BUSY — TRY AGAIN IN A MOMENT (or press [L] for local cache) ***` |
+| Rate limited | `*** UPSTREAM THROTTLED — QUOTA EXHAUSTED. WAIT 60s ***` |
+| Parse failure | `*** PACKET CORRUPTED — CRC MISMATCH ON FEED <name> ***` |
+| Empty result | `NO RECORDS FOUND. THE VOID ANSWERS NOT.` |
+| Storage full | `*** DISK FULL — PURGING OLDEST CACHE SECTORS ***` |
+
+Real diagnostics (URL, status, error) visible only in SysOp console `[N]et log`.
+
+### 13.6 Tier 2 — optional local helper (do NOT make it required)
+
+Deliver `tools/cyber-proxy.mjs`: a ~120-line Node 18+ single-file HTTP server on `127.0.0.1:8787` that (a) proxies GET with an allowlist of the hosts in §11, (b) adds CORS headers, (c) optionally saves downloads to `./DOWNLOADS/`. HTML auto-detects it (`GET /ping`, 500 ms timeout) and prefers it when present, showing `RELAY: LOCAL` in the status strip. No npm dependencies. Document startup in README. This solves every CORS/`file://` edge case for power users while keeping Tier 1 double-click viable.
+
+---
+
+## 14. SECURITY, PRIVACY, LEGAL
+
+- **Sanitize everything remote:** parse HTML with `DOMParser`, extract `textContent`, strip control chars except ANSI in `.ans` files, cap lengths (title 200, body 20 000). ANSI parser must be bounds-safe (clamp cursor, cap params, reject > 16 params).
+- No `innerHTML`, no `eval`, no inline event handlers from data.
+- HTTPS only; reject `http://` URLs (proxy handles upgrade); block `javascript:`/`data:` in links.
+- Add a restrictive CSP meta tag compatible with a single file (allow `'unsafe-inline'` for the inline script/style only if unavoidable; document the tradeoff).
+- API keys: local only, masked in UI, explicit warning "stored in this browser, never transmitted except to the owning API".
+- **Downloads:** only permissive/public-domain/CC-licensed or user-requested public artifacts. Show license + attribution on file detail and in the ANSI gallery. For abandonware on Internet Archive, link/stream user-initiated downloads only; no bulk mirroring; add a notice in About.
+- **Google Images:** official CSE API only, SafeSearch on, quota notice; no scraping.
+- **Fonts/art:** Px437 (CC BY-SA 4.0) attribution; each bundled ANSI keeps author/group/year from SAUCE; produce `LICENSE-THIRD-PARTY.md` and an in-app `[I] About → Credits` page.
+- No personal data collection; "real name" field explicitly optional with alias hint.
+
+---
+
+## 15. ACCESSIBILITY & UX POLISH (non-negotiable quality bar)
+
+- `prefers-reduced-motion` → disable flicker/curvature/power-on animation, keep scanlines static.
+- Hidden ARIA live region mirrors the last 5 terminal lines for screen readers; `[F1]` toggles "Accessible mode" (linear text output, no pacing, no effects).
+- Full keyboard map documented in `[?] Help`; every action reachable without mouse; visible focus never lost.
+- Integer scaling + `Ctrl +/-` to change zoom (1×–4×); responsive down to 720 px width (auto 1× + optional 60-col wrap mode).
+- Mobile: hidden input to summon soft keyboard, tap-to-focus, on-screen `ESC/ENTER/arrows` strip only when touch detected.
+- **Delight details to implement:** type-ahead, `[Y/N]` single-key confirms, bell on invalid key, "Press any key" pauses, idle 60 s → attract mode, `Ctrl+Alt+S` console, blinking block cursor at 530 ms, `Esc` aborts output, `Backspace` echoes `█ █`, session logoff shows real stats, redial remembers last number.
+
+---
+
+## 16. PERFORMANCE BUDGETS
+
+| Metric | Budget |
+|---|---|
+| HTML size | ≤ 3 MB |
+| Cold boot → login | ≤ 1.5 s |
+| Full 80×25 ANSI redraw | ≤ 8 ms |
+| Sustained typing/streaming | 60 fps, no dropped frames > 2 |
+| Memory after 30 min session | ≤ 150 MB |
+| Audio nodes | pooled/disconnected; zero growth over 1000 keypresses |
+| Network per door open | ≤ 3 requests (cache-first) |
+
+---
+
+## 17. FILE MANIFEST
+
+```
+cyber-bbs/
+├─ cyber-bbs.html              ← THE PRODUCT (single file, self-contained)
+├─ README.md                   ← what it is, how to run, keys, tiers, FAQ
+├─ CHANGELOG.md                ← per-phase entries
+├─ LICENSE                     ← MIT for code
+├─ LICENSE-THIRD-PARTY.md      ← font, ANSI art, seed data attributions
+├─ CYBER-BBS-PLAN.md           ← this document
+├─ docs/
+│  ├─ ENDPOINTS.md             ← every endpoint probed: status, CORS, notes, date
+│  ├─ DECISIONS.md             ← ADR-lite log of judgment calls
+│  ├─ SCREENS.md               ← final 80-col layout of every screen
+│  └─ TESTING.md               ← manual checklist + SELFTEST results
+├─ tools/
+│  └─ cyber-proxy.mjs          ← optional Tier 2 relay (no deps)
+└─ assets-src/                 ← originals used to build embedded base64 (not required at runtime)
+   ├─ Px437_IBM_VGA8.woff2
+   └─ ansi/*.ans
+```
+
+---
+
+## 18. IMPLEMENTATION PHASES
+
+> Each phase ends with: app runs, `SELFTEST` green, docs updated, git commit. Never leave a phase with a broken boot path.
+
+### P0 — Skeleton & Terminal (foundation)
+Tasks: file scaffold + CSP/meta; embed font; glyph atlas; 80×25 buffer; ANSI parser T-01…T-14; RAF loop; input capture + type-ahead; palette; `Term.write` API; pacing engine; pager; `SELFTEST` harness with ANSI golden tests.
+**DoD:** can render an embedded 80×25 ANSI file pixel-perfectly at 60 fps; parser passes 20 golden cases incl. malformed input; keyboard echo works; no console errors.
+
+### P1 — Boot, Modem, CRT, Audio
+Tasks: POST screen; dial dialog + phone book; AT emulation; handshake timeline engine + profiles; full Web Audio synth (§7); CRT effects + themes; power-on animation; attract-mode stub; mute/volume.
+**DoD:** full dial→CONNECT experience with audible, believable handshake; `ESC` skips; all 8 profiles selectable; reduced-motion path clean; audio nodes don't leak.
+
+### P2 — Identity, Session, Shell
+Tasks: login/newuser/validation; Store + migrations + export/import; access levels; time bank + warnings + forced logoff; credits/ratio; main menu + router + door stack; help system; settings screen; bulletins; last callers; stats; logoff screen.
+**DoD:** two accounts persist across reload; time bank decrements and forces logoff; every main-menu key routes to at least a stub door with correct exit; save export/import round-trips.
+
+### P3 — Net Layer + News Door
+Tasks: `Net` with cache/proxy chain/health/backoff/offline; RSS/Atom/RDF parsers + entity decoding + HTML stripping; News door list/reader/save; feed management in console; offline ARCHIVE DIGEST; in-character errors.
+**DoD:** with network, ≥ 5 feeds show real current headlines; with network disabled (DevTools offline), door still fully usable from archive; article bodies are clean 78-col text; zero HTML injection possible.
+
+### P4 — Files, Transfers, Viewers
+Tasks: areas + seed catalog (≥ 40 verified items); Archive/Gutenberg adapters; file detail; Xfer pipeline with real progress + Zmodem theater; Blob save; text/NFO/DIZ/hex viewers; upload with IndexedDB; credits/ratio enforcement; transfer log.
+**DoD:** ≥ 5 real files download successfully and open correctly in their native apps; upload→re-download works; ratio/credits math correct; failed transfer shows in-character error + retry.
+
+### P5 — Photos + GitHub + Weather
+Tasks: Wikimedia/NASA/Openverse/Picsum adapters; optional Google CSE (BYO key); image→ANSI converter (16-color + HiColor + dithering); ANSI/SAUCE save; GitHub search/repo/tree/README/raw/ZIP + curated shelf + rate-limit awareness; wttr.in + Open-Meteo weather with geocoding.
+**DoD:** photo search returns real results, ANSI preview is recognizable, full-size image saves to disk; GitHub browse downloads a real file and a README renders as readable text; weather shows real current conditions for a typed city; all three degrade gracefully offline.
+
+### P6 — Messages, Chat, Social
+Tasks: conferences/threads/compose/editor; seed 25 messages; 6 bot personas + delayed replies; netmail + SysOp keyword autoresponder; chat split screen + page bell; one-liners; last callers wiring.
+**DoD:** post a message → receive a plausible bot reply within the session; threads persist; chat is usable and exitable; one-liner rate limit enforced.
+
+### P7 — Doors / Games
+Tasks: CYBER LORD, STAR TRADE, GLOBAL WAR, BLACKJACK, HANGMAN, FORTUNE; per-user saves; daily resets; shared high scores; ASCII art for each; door log lines.
+**DoD:** each game is genuinely playable to a win/lose state, saves/restores, and returns cleanly to the BBS; daily limits reset on date change.
+
+### P8 — ANSI Gallery, Polish, QA, Docs
+Tasks: SAUCE parser; artpack adapters + 12 embedded pieces + 3 original Cyber BBS screens; gallery viewer + slideshow + attract mode; sound design pass; accessibility pass (live region, accessible mode, contrast); performance pass; `SELFTEST` expansion; README/ENDPOINTS/DECISIONS/SCREENS/TESTING; third-party licenses; final size check.
+**DoD:** §21 acceptance checklist 100% green; file ≤ 3 MB; offline cold-boot full tour possible; no console errors in a 15-minute scripted session.
+
+### P9 — Optional stretch (only after P8 sign-off)
+WebRTC/BroadcastChannel multi-node chat between browser tabs · ANSI music playback · RIPscrip subset · separate `cyber-bbs-dos.html` with js-dos real door · dial-out to real telnet BBS via WebSocket bridge · BBS "ad" generator that exports a `.ans` flyer.
+
+---
+
+## 19. TESTING PLAN
+
+### 19.1 In-app `SELFTEST` (hidden command, also `Ctrl+Alt+T`)
+Prints a PASS/FAIL table for: CP437 mapping (256 glyphs), ANSI golden cases (20), cursor bounds/clamping, SAUCE parse, RSS 2.0/Atom/RDF fixtures, HTML sanitizer XSS fixtures, palette nearest-color, image→ANSI determinism, storage round-trip + quota eviction, credit/ratio math, time-bank rollover, proxy chain ordering with mocked failures, audio graph smoke (node count), state-machine illegal transitions. Must run offline in < 3 s.
+
+### 19.2 Manual checklist (`docs/TESTING.md`)
+Cold boot · dial with sound · silent dial · ESC skip · login wrong password ×3 → NO CARRIER · new user → validation · every menu key · every door offline · every door online · 3 real downloads · 1 upload · photo save · GitHub file save · message + bot reply · chat · game save/restore · time expiry · settings persistence · export/import save · reduced motion · accessible mode · 1×–4× zoom · 720 px width · attract mode · redial.
+
+### 19.3 Optional automation
+A Playwright script (`tools/smoke.mjs`, dev-only, not required at runtime) that loads the page, skips the modem, walks all doors offline, and asserts zero console errors + no unhandled rejections. Document the Windows command in README; keep it out of the product's dependency surface.
+
+---
+
+## 20. WINDOWS RUNBOOK (for README)
+
+- **Tier 1:** double-click `cyber-bbs.html` (Edge/Chrome). If a source is CORS-blocked, the app auto-uses proxies.
+- **Tier 1+ (recommended):** serve locally for a normal origin — `python -m http.server 8080` in the project folder, then open `http://localhost:8080/cyber-bbs.html`.
+- **Tier 2:** with Node 18+, run `node tools/cyber-proxy.mjs`, reload the page; status strip shows `RELAY: LOCAL` and downloads may be written to `./DOWNLOADS/`.
+- **Dev:** `git init`, commit per phase; no package manager needed for the product.
+- Note in README: PowerShell execution policy is irrelevant (no scripts required); everything runs in the browser.
+
+---
+
+## 21. ACCEPTANCE CRITERIA — DEFINITION OF DONE
+
+- [ ] Single `cyber-bbs.html` ≤ 3 MB, opens from `file://` on Windows with zero setup
+- [ ] 100% English UI; zero modern-SaaS vocabulary; consistent SysOp voice
+- [ ] Boot→login ≤ 1.5 s; 60 fps ANSI streaming; no console errors in 15-min session
+- [ ] Audible, skippable, believable modem handshake; 8 profiles; AT command emulation
+- [ ] 80×25 CP437 with correct 16-color palette; SAUCE-aware ANSI rendering
+- [ ] All 25 screens implemented, reachable, documented in `docs/SCREENS.md`, exitable
+- [ ] Live RSS from ≥ 5 real sources when online; readable 78-col article text
+- [ ] ≥ 5 real file downloads verified byte-correct; upload/re-download works
+- [ ] Photo search returns real images; ANSI preview recognizable; full-res save works
+- [ ] GitHub search/browse/README/raw download all functional; quota handled
+- [ ] Weather returns real current conditions for a typed city
+- [ ] Messages post/persist and receive bot replies; chat works
+- [ ] 6 playable doors with saves and daily limits
+- [ ] Accounts, credits, ratio, time bank, stats persist; export/import save works
+- [ ] Full offline tour possible with in-character notices (never blank, never raw errors)
+- [ ] Keyboard-only complete; reduced-motion + accessible mode + ARIA mirror implemented
+- [ ] `SELFTEST` 100% PASS; manual checklist 100% signed off
+- [ ] `README`, `CHANGELOG`, `ENDPOINTS`, `DECISIONS`, `TESTING`, third-party licenses complete
+- [ ] No credentials sent to third-party proxies; no `eval`/`innerHTML` with remote data
+
+---
+
+## 22. SEED CONTENT SPEC (bundled, offline)
+
+| Asset | Quantity | Notes |
+|---|---|---|
+| Original ANSI screens | 3 | logo/login, logoff w/ stats frame, "CALL CYBER BBS" ad |
+| Third-party ANSI/ASCII art | 12 | permissive/CC, SAUCE credits preserved |
+| Bulletins | 3 | system rules, ratio policy, node upgrade notice (dated 1995) |
+| Archive news digest | 20 | real 1993–1996 computing events, labeled ARCHIVE |
+| File catalog | 40+ | verified real downloadable items, license fields filled |
+| GitHub shelf | 25 | curated retro/terminal/BBS repos, metadata embedded |
+| Message threads | 5 threads / 25 msgs | authentic period voice, distinct handles |
+| Bot personas | 6 | handle, style, catchphrases, keyword reply map |
+| Fortunes | 120 | computing/retro quotes |
+| Text library shelf | 15 | legally redistributable classics |
+| Last callers | 10 | plausible handles/cities/bauds |
+| Phone book | 4 | Cyber BBS + 3 flavor systems with distinct banners |
+
+---
+
+## 23. COPY DECK (use verbatim where indicated)
+
+- Boot: `CYBER BBS TERMINAL v1.0 — 640K OK — HAYES COMPATIBLE MODEM ON COM2`
+- Ready: `PRESS ANY KEY TO DIAL  ·  [F1] SETUP  ·  [F2] SILENT DIAL`
+- Connect: `CONNECT 14400/ARQ/V42B/NONE`
+- Welcome back: `Welcome back, {handle}. Last call: {date} at {time} from {city}. You have {n} new messages.`
+- New user: `So you want a handle on MY system? Fine. Answer honestly and don't waste my bauds.`
+- Validation: `Application logged. DR. NOISE reviews new users between 21:00 and 02:00. Until then you're a GUEST. Don't touch the file ratio.`
+- Time warning: `*** WARNING: 5 MINUTES REMAINING ON THIS CALL ***`
+- Logoff: `Call #${n} logged. {mins} minutes, {dl} downloads, {bytes} bytes. The modem rests. Call again.`
+- Hangup: `ATH0` → `OK` → `NO CARRIER`
+- About tagline: `Cyber BBS — a 1995 board that never stopped answering.`
+
+---
+
+## 24. GUARDRAILS — DO NOT
+
+1. Do not add React/Vue/Tailwind/jQuery/build tools/CDN links.
+2. Do not use modern UI patterns: modals, toasts, hamburger menus, spinners, Material shadows.
+3. Do not use emoji anywhere in the terminal (CP437 only).
+4. Do not scrape Google Images, paywalled news, or Reddit HTML.
+5. Do not require an API key for any default feature.
+6. Do not leave TODOs, `lorem ipsum`, or dead menu keys in a committed phase.
+7. Do not let a network failure break navigation or produce a blank screen.
+8. Do not exceed 3 MB or add runtime asset files to the core product.
+9. Do not store or transmit real personal data; passwords hashed, keys local.
+10. Do not break the 80-column grid — every border must align.
+
+---
+
+## 25. HANDOFF PROMPT (paste this to your CLI agent)
+
+> Read `CYBER-BBS-PLAN.md` in full. Treat §2 as hard constraints and §21 as the contract. Execute **Phase P0 only**, then stop and report: files created, SELFTEST results, deviations logged in `docs/DECISIONS.md`, and the exact command to run the app on Windows. Wait for my approval before P1. Probe and record every external endpoint you rely on in `docs/ENDPOINTS.md` as you go. Never ship placeholder features. All user-facing text in English.
+
+---
+
+## 26. GLOSSARY (for consistency)
+
+**ANSI** — escape-sequence text graphics · **ARQ** — error-corrected link · **Baud/bps** — line rate · **CP437** — IBM PC character set · **Door** — external BBS program · **Echomail** — public conference mail · **Netmail** — private mail · **NFO/DIZ** — release info files · **Ratio** — upload:download obligation · **SAUCE** — metadata trailer in ANSI art · **SysOp** — system operator · **Zmodem** — 90s transfer protocol · **Node** — one phone line/user slot.
+
+---
+
+**End of plan.** Build it like it's 1995 and the phone bill is someone else's problem.
+
+
+------------------------------
+
+Documento criado
+
+Preparei o plano completo do **CYBER BBS**, inteiramente em inglês, pronto para entregar a uma IA de CLI no seu Windows 11.
+
+**CYBER_BBS_Implementation_Blueprint.md**
+
+Markdown · Aproximadamente 8.300 palavras · 17 seções
+
+&#x20;Baixar plano completo em Markdown
+
+### **O que está especificado**
+
+- **Experiência BBS:** conexão por modem simulada, sons de handshake, ANSI art, CRT, menus e comandos de terminal.
+- **Comunicação:** message boards, mensagens privadas, usuários, Sysop e bulletins.
+- **Notícias reais:** RSS/Atom, NASA, Ars Technica e BBC.
+- **Downloads:** biblioteca de arquivos, integração com GitHub, releases e transferências simuladas XMODEM/ZMODEM.
+- **Imagens:** busca e download através de Openverse, Wikimedia Commons e NASA.
+- **Jogos:** ANSI Maze, Trivia Terminal e Text Adventure.
+- **Persistência:** IndexedDB, perfis locais, favoritos e histórico.
+- **Arquitetura:** HTML, CSS, JavaScript, integrações externas e proxy serverless opcional.
+- **Segurança:** CORS, licenciamento, downloads, proteção contra XSS e gerenciamento de APIs.
+- **Implementação:** nove fases de desenvolvimento, testes e critérios objetivos de conclusão.
+
+**Uma decisão importante:** o documento especifica `index.html` como entrada principal, mantendo CSS e JavaScript organizados em arquivos separados. Isso facilita a manutenção pela IA e permite hospedagem estática.
+
+Também deixei explícito que imagens do Google não devem ser obtidas por scraping: a API Custom Search JSON está fechada para novos clientes e tem prazo de transição até 1º de janeiro de 2027.&#x20;
+
+[image](https://www.google.com/s2/favicons?domain=https://developers.google.com\&sz=32)
+
+Google for Developers
+
+&#x20;O GitHub também tem limites de requisições que foram considerados na arquitetura.&#x20;
+
+[image](https://www.google.com/s2/favicons?domain=https://docs.github.com\&sz=32)
+
+GitHub Docs
+
+
+
+**Minha recomendação:** entregue esse Markdown inteiro à sua IA de CLI e peça que ela siga as nove fases, validando cada uma antes de avançar.
+
+Quando a implementação estiver pronta, vale fazer uma auditoria funcional do CYBER BBS para verificar se todas as integrações e funcionalidades realmente funcionam.
+
+🖥️Auditar o CYBER BBS concluídoToque para configurar
+# CYBER BBS — Complete Implementation Blueprint
+
+**Project type:** Retro Bulletin Board System (BBS) simulator with real, usable web integrations  
+**Primary entry point:** `index.html`  
+**Target environment:** Modern desktop browsers, especially Chrome and Microsoft Edge on Windows 11  
+**Interface language:** English only  
+**Design direction:** Faithful 1990–1996 dial-up BBS atmosphere, presented as a polished modern website  
+**Implementation approach:** Vanilla HTML, CSS, and JavaScript; no framework or build pipeline required for the core experience
+
+---
+
+## 1. Mission and Product Vision
+
+Build **CYBER BBS**, a browser-based recreation of the experience of connecting to a computer Bulletin Board System (BBS) in the early-to-mid 1990s.
+
+The experience should feel like a real BBS session rather than a modern website wearing a retro skin. Users should encounter a boot sequence, modem connection simulation, ANSI-style welcome screen, text menus, message areas, file areas, bulletins, a user directory, and classic door-style mini experiences.
+
+Unlike a historical BBS, CYBER BBS must also be genuinely useful today. It should retrieve live news feeds, browse public GitHub repositories and releases, search openly licensed images, and download permitted files through the browser. It should combine the nostalgia of dial-up computing with real current Internet content.
+
+The project should be original. Do not copy the branding, source code, artwork, or proprietary content of a specific historical BBS. Recreate common design conventions and interaction patterns from the era, while using original CYBER BBS branding and original text-based artwork.
+
+### Core product principles
+
+1. **Authentic first impression:** The first seconds should communicate dial-up BBS immediately: black screen, ANSI lettering, cursor, connection status, modem sounds, and a terminal-like layout.
+2. **Real functionality:** News, repository information, image search, and browser downloads must use real external data rather than fabricated content.
+3. **Terminal-first interaction:** Menus should support keyboard navigation and classic one-letter or numeric commands, not just mouse clicks.
+4. **Honest simulation:** The modem sequence is an audiovisual simulation. The site does not place a telephone call, establish a modem connection, or communicate through a telephone line.
+5. **Local-first persistence:** A visitor should be able to use the core BBS without creating an account. Preferences, local messages, bookmarks, and activity should persist in that browser.
+6. **Safe external content:** Treat all feed items, repository descriptions, image metadata, and imported files as untrusted input.
+7. **English-only interface:** All menus, labels, prompts, errors, help text, sample posts, and system messages must be written in English.
+
+---
+
+## 2. Scope and Important Technical Reality
+
+### 2.1 What can be delivered as a static website
+
+The primary application should be a static website whose entry point is `index.html`. It can be hosted on GitHub Pages, Cloudflare Pages, Netlify, or another static hosting service. It can also be run locally on Windows through a lightweight local HTTP server.
+
+A static front end can provide:
+
+- The full retro terminal interface and simulated dial-up session.
+- Local user profiles and preferences.
+- Local message boards, private notes, bookmarks, and activity history.
+- Live access to third-party APIs that permit browser requests.
+- Real browser-initiated downloads when the source permits them.
+- Local file selection and browser-side import/export.
+- Offline access to the shell and previously cached local content, if a service worker is added.
+
+### 2.2 What a static HTML site cannot honestly provide by itself
+
+A static site cannot securely provide a real shared multi-user BBS database, server-side accounts, cross-device message synchronization, private server-side mailboxes, or unrestricted RSS/API proxying. Those capabilities require a backend or serverless service.
+
+The first release should therefore be a **single-user/local-first BBS with real live Internet integrations**. Local posts and user profiles are stored in the visitor's browser, not transmitted to a community server. The application must state this clearly in its help/about screen.
+
+Design the data layer so a shared community backend can be added later without rewriting the terminal interface. Do not pretend that a locally stored post is visible to other visitors.
+
+### 2.3 Recommended integration architecture
+
+Use two deployment levels:
+
+**Level A — Static-only core**
+
+- `index.html` is the application entry point.
+- CSS and JavaScript are separate assets for maintainability.
+- Public APIs are called directly only where browser CORS permissions and provider terms allow it.
+- Local data is stored in IndexedDB, with small preferences in localStorage.
+- If a feed or provider blocks browser requests, show a useful explanation and an external link rather than silently failing.
+
+**Level B — Optional lightweight integration proxy**
+
+Add a small serverless proxy only when required for reliable RSS/API access. Suitable deployment targets include a Cloudflare Worker or a similar edge/serverless function.
+
+The proxy must:
+
+- Expose only specific, allowlisted integration routes.
+- Never become an unrestricted URL-fetching proxy.
+- Cache feed/API responses and enforce reasonable request limits.
+- Keep API secrets in server-side environment variables, never in browser JavaScript.
+- Reject private-network, localhost, link-local, and non-HTTP(S) destinations.
+- Validate upstream response types and sizes.
+- Return normalized data to the static front end.
+
+Keep the serverless layer optional. The project must still boot and display a useful local BBS shell when no proxy is configured.
+
+---
+
+## 3. Historical BBS Experience to Recreate
+
+The following features represent common BBS conventions from the era. Implement them as a coherent experience, not as a collection of unrelated widgets.
+
+### 3.1 Startup and modem connection
+
+Create a dedicated connection sequence that feels like dialing a remote computer:
+
+1. Black screen and blinking cursor.
+2. Short system initialization / terminal startup text.
+3. `INITIALIZING MODEM...`
+4. `DIALING CYBER BBS...`
+5. Simulated ringing or line-wait phase.
+6. Carrier detection and modem negotiation animation.
+7. `CONNECT 33600` or another historically plausible displayed speed.
+8. `CONNECTING TO REMOTE SYSTEM...`
+9. CYBER BBS welcome screen.
+
+The connection speed may be selected from a small historically plausible set such as 14,400, 28,800, 33,600, or 56K. It is a display effect only; do not imply that the browser is transferring data at a modem's actual bit rate.
+
+The connection sequence must include:
+
+- A visible progress indicator and short terminal status messages.
+- A Skip button for visitors who do not want to wait.
+- A Disconnect / Hang Up command.
+- A clearly labeled `SIMULATED MODEM SESSION` status.
+- A mute toggle and volume control.
+- A setting to disable animation and sound.
+
+The visitor must explicitly click **CONNECT** or another clearly labeled user gesture before audio begins. Browsers commonly block unsolicited audio playback; initialize or resume audio only after user interaction.
+
+### 3.2 Modem sound design
+
+Create an original dial-up-inspired sound sequence. Prefer procedurally generated tones using the Web Audio API, or original sound assets with documented usage rights.
+
+The sound sequence can include:
+
+- Dial tone-like opening tone.
+- Touch-tone dialing pulses.
+- Ringback-like pauses.
+- Carrier squeal / handshake-inspired tones.
+- Brief static/noise texture during negotiation.
+- A short connection confirmation beep.
+
+Requirements:
+
+- Do not autoplay audio on page load.
+- Start audio only after an explicit user action.
+- Provide mute, volume, and sound-off-by-default settings.
+- Stop all audio immediately on Hang Up, navigation away from the connection stage, or when the user disables sound.
+- Avoid painfully loud, piercing, or excessively long sounds.
+- Never use an unlicensed recording of an existing modem sound effect.
+
+### 3.3 ANSI/terminal visual identity
+
+The main application should resemble an 80-column BBS terminal while remaining usable on modern screens.
+
+Visual direction:
+
+- Very dark background, primarily black or near-black.
+- Phosphor green as the signature CYBER BBS color.
+- Optional amber, cyan, white, and dim green for hierarchy.
+- Monospaced typography; use a readable bundled or system monospace fallback.
+- ASCII/ANSI-style borders, separators, box drawing, and text banners.
+- A visible block or underline cursor where appropriate.
+- Subtle scanlines and CRT glow as optional effects, not mandatory overlays.
+- Minimal gradients, rounded cards, shadows, or contemporary dashboard conventions.
+- Small system/status line showing connection speed, current section, local time, and user/guest name.
+
+The terminal should use a consistent 80-column-inspired grid on desktop. On small screens, reflow menus and wrap text intelligently rather than forcing unusable horizontal scrolling. Keep an optional `Compact Terminal` mode for mobile.
+
+Offer visual settings:
+
+- Green phosphor (default).
+- Amber monochrome.
+- White monochrome.
+- High-contrast accessibility mode.
+- CRT effects on/off.
+- Reduced motion.
+- Font size.
+
+### 3.4 Login and user identity
+
+Provide the following entry options:
+
+- `GUEST LOGIN` — recommended default; no registration required.
+- `NEW USER` — create a local browser profile.
+- `RETURNING USER` — select a locally saved profile.
+
+A local profile should contain:
+
+- Handle / alias.
+- Optional short signature.
+- Join date.
+- Last login date.
+- Theme and sound preferences.
+- Bookmarks and saved preferences.
+- Local contribution/activity counters.
+
+Explain that this profile exists only in the current browser unless a future shared backend is configured. Do not request a real-world name, address, phone number, or other unnecessary personal data.
+
+### 3.5 Main menu
+
+Create an ANSI-style main menu with numbered and lettered options. The menu should be recognizable as a BBS menu, for example:
+
+- `N` — News & Bulletins
+- `M` — Message Boards
+- `E` — Electronic Mail
+- `F` — File Areas
+- `G` — GitHub Repository Library
+- `I` — Image Library
+- `D` — Door Games
+- `U` — User Directory
+- `H` — Help / Command List
+- `S` — System Status
+- `P` — Preferences
+- `Q` — Log Off
+
+Show the current section, user alias, session duration, simulated baud rate, and local clock in a compact status area.
+
+The main menu must be navigable with:
+
+- Keyboard letter commands.
+- Number keys where appropriate.
+- Arrow keys and Enter.
+- Visible clickable menu entries for users who prefer a mouse or touch screen.
+- A command prompt that accepts supported commands.
+
+Unknown commands must return a friendly terminal response such as `UNKNOWN COMMAND — TYPE HELP FOR A LIST OF COMMANDS.`
+
+---
+
+## 4. Detailed Feature Requirements
+
+## 4.1 News & Bulletins
+
+Create a BBS-style news area that combines classic system bulletins with current real news feeds.
+
+### A. System bulletins
+
+Seed the BBS with original, clearly labeled sample bulletins such as:
+
+- Welcome to CYBER BBS.
+- System rules and acceptable use.
+- What's new in this release.
+- Maintenance announcements.
+- New file area announcements.
+- Community guidelines.
+
+These are local CYBER BBS notices, not live external news.
+
+### B. Live RSS/Atom news reader
+
+Implement a working feed reader that supports RSS 2.0 and Atom where practical.
+
+Provide starter feeds such as:
+
+| Feed name | Feed URL | Purpose |
+|---|---|---|
+| NASA News Releases | `https://www.nasa.gov/news-release/feed/` | Space and science announcements |
+| NASA Technology | Use the current feed linked from NASA's official RSS directory | Technology and research |
+| NASA Image of the Day | Use the current Image of the Day feed linked from NASA's official RSS directory | Daily image feature |
+| Ars Technica — All News | `https://feeds.arstechnica.com/arstechnica/index` | Technology and general technology journalism |
+| Ars Technica — Technology Lab | `https://feeds.arstechnica.com/arstechnica/technology-lab` | IT and computing |
+| BBC News — Top Stories | `https://feeds.bbci.co.uk/news/rss.xml` | International headlines; verify current availability and terms before enabling by default |
+
+Do not assume every feed will remain available forever. Implement a feed registry that can be edited without changing the reader logic. Validate each starter feed during implementation and record the date it was tested.
+
+### C. Feed reader functions
+
+- List feeds by source/category.
+- Display source, headline, publication date, short summary, and original article link.
+- Open the full article in a new browser tab; do not scrape or reproduce the full article.
+- Mark an item as read/unread locally.
+- Bookmark an item.
+- Search loaded headlines and summaries.
+- Refresh one feed or all feeds manually.
+- Show the last successful refresh timestamp.
+- Show feed health: Online, Cached, or Unavailable.
+- Cache a reasonable number of recent items locally.
+- Provide `ADD FEED` and `REMOVE FEED` controls.
+- Allow the user to reset to the built-in starter feed list.
+
+### D. RSS/CORS handling
+
+Browser JavaScript cannot freely read every third-party RSS feed. A feed server must permit cross-origin requests for a direct browser fetch to work.
+
+Implement a clear fallback strategy:
+
+1. Try the configured direct feed endpoint if it is known to support browser access.
+2. If a configured serverless proxy exists, request the feed through that proxy.
+3. If neither path works, show cached results and an `OPEN SOURCE FEED` external link.
+4. Explain the CORS/availability issue in the feed's status panel.
+
+Do not use an unknown public CORS proxy as a production dependency. Do not make an arbitrary URL proxy available to visitors.
+
+### E. News presentation
+
+Keep the retro terminal style. Use a list such as:
+
+`[01] 2026-11-14  NASA ANNOUNCES...`
+
+Selecting a headline opens an item detail screen with the summary, source, date, bookmark/read controls, and an external article link.
+
+---
+
+## 4.2 Message Boards (Classic BBS Message Areas)
+
+Build a local message-board system that resembles the message areas of a classic BBS.
+
+### Message areas
+
+Create starter boards such as:
+
+- General Discussion
+- Retro Computing
+- Hardware & Electronics
+- Programming & Open Source
+- Internet History
+- Science & Technology
+- BBS Nostalgia
+- Site Feedback
+
+### Required functions
+
+- Browse board list and message counts.
+- View messages in chronological or threaded order.
+- Open a message and view its author alias, timestamp, subject, and body.
+- Create a new local post.
+- Reply to an existing message.
+- Quote a previous message.
+- Search message subjects and content.
+- Mark messages as read/unread.
+- Bookmark messages.
+- Edit or delete the current user's local posts.
+- Display local message IDs and reply relationships.
+- Export a board or selected messages as a text file.
+
+### Local-only behavior
+
+By default, posts are stored in IndexedDB in the current browser. Add an unobtrusive notice: `LOCAL BOARD — POSTS ARE STORED IN THIS BROWSER ONLY.`
+
+Create optional fictional system accounts/personas to make the board feel inhabited. Clearly label seeded conversations as sample content, not real users. Do not pretend that simulated users are currently online or that local posts have been sent to other people.
+
+### Future shared mode
+
+Define an adapter boundary for a later shared backend. Do not implement fake synchronization. When a shared backend is added, it must provide real authentication, database rules, server-side validation, and abuse controls.
+
+---
+
+## 4.3 Electronic Mail / BBS Mail
+
+Implement a small local mailbox inspired by classic BBS private mail.
+
+Functions:
+
+- Inbox, Sent, and Drafts folders.
+- Compose a message to another local profile or a clearly labeled sample account.
+- Subject and message body.
+- Reply and delete.
+- Unread message counter.
+- Search and local archive.
+
+In local-only mode, mail is private data stored in the current browser and is not delivered to another visitor. The interface must say `LOCAL MAIL — NOT DELIVERED OVER A NETWORK` when appropriate.
+
+Do not integrate the visitor's real email account in the first release. The BBS mailbox is an in-app simulation.
+
+---
+
+## 4.4 File Areas and Download Library
+
+This is one of the most important features. It must feel like browsing a classic BBS file area, while allowing real browser downloads from legitimate sources.
+
+### A. File area structure
+
+Create categories such as:
+
+- Utilities
+- Open Source Software
+- Retro Computing
+- Documentation
+- Graphics & ANSI Art
+- Public-Domain Media
+- Demos & Sample Projects
+- CYBER BBS Archives
+
+Each file listing should include:
+
+- File name.
+- Short description.
+- Category.
+- Version, if known.
+- File size, if known.
+- Source/provider.
+- License or usage information, if available.
+- Upload/publish date, if available.
+- Download count (only local CYBER BBS interaction count; do not represent it as a provider-wide count).
+- Download action.
+
+### B. Real download sources
+
+Use legitimate sources and provider APIs. Examples:
+
+- GitHub release assets.
+- GitHub source archives.
+- Official project download pages.
+- Public-domain or openly licensed archives.
+- Files bundled with CYBER BBS itself, such as original ANSI art or a sample text manual.
+
+For each item, provide an external source link and relevant license information. Do not mirror files without permission.
+
+### C. Download behavior
+
+- A user selects a file.
+- The BBS displays a classic file-card detail screen.
+- Show file name, size, description, provider, and license/source details.
+- Ask the user to confirm the download.
+- Start a real browser download when allowed by the source and browser.
+- Display a simulated transfer progress animation with a retro protocol label such as `ZMODEM` or `XMODEM`.
+- After transfer, show `TRANSFER COMPLETE` or an honest error message.
+
+Important: the ZMODEM/XMODEM progress display is a visual simulation. The browser is using normal HTTPS downloads, not negotiating a real serial-port file-transfer protocol. Do not throttle or fake the actual transfer itself to imitate modem speed.
+
+If the remote host prevents a direct download, open its official download page and explain that the provider controls the actual transfer.
+
+### D. Local upload sandbox
+
+Include an optional `UPLOAD A FILE` feature to recreate the BBS upload experience. In the static version:
+
+- Let the visitor select a file with the browser file picker.
+- Store the file and metadata locally in IndexedDB, subject to browser storage limits.
+- Label it `LOCAL UPLOAD — VISIBLE ONLY IN THIS BROWSER`.
+- Allow the visitor to inspect and remove the local upload.
+- Do not imply that it has been submitted to a public server.
+- Do not execute uploaded files.
+- Apply conservative file-size limits and show a clear warning before storing large files.
+
+A future shared upload feature must require a backend, authentication, storage policy, malware scanning, moderation, and quotas.
+
+### E. File safety
+
+Do not automatically open, execute, install, or extract downloaded files. Make the source obvious. Warn users when a file type is executable or potentially active. The default gallery should prioritize documentation, images, text, and recognized open-source release assets.
+
+---
+
+## 4.5 GitHub Repository Library
+
+Build a retro-styled repository browser that uses the real GitHub REST API.
+
+### A. Repository discovery
+
+Provide curated starter entries and a search interface. Suggested categories:
+
+- Retro Computing
+- BBS Software & Protocol History
+- Terminal Emulators
+- Open Source Utilities
+- Developer Tools
+- Web Experiments
+- Graphics & Demos
+- Educational Projects
+
+Allow the visitor to search public repositories by keyword. Display:
+
+- Repository name and owner.
+- Description.
+- Primary language.
+- Stars and forks.
+- Last updated date.
+- License, when available.
+- Open Issues count, when available.
+- Repository URL.
+- Latest release tag and release date, when available.
+
+### B. Repository detail screen
+
+Show:
+
+- Repository overview.
+- Default branch.
+- Latest published release.
+- Release notes excerpt, rendered safely as text/Markdown after sanitization if rich rendering is used.
+- Release assets and sizes, when present.
+- Source archive download link.
+- Link to the repository page.
+- Link to the project's license file when discoverable.
+
+### C. Real downloads
+
+Use the official release-assets browser download URLs or official GitHub source archive URLs. Do not proxy or re-host repository binaries in the first release.
+
+Use the GitHub REST API release endpoints to list published releases and assets. Public repositories can generally be queried without authentication, but unauthenticated requests have a relatively low rate limit. Design caching and request pacing from the beginning.
+
+### D. Rate-limit and reliability behavior
+
+- Read and respect GitHub rate-limit response headers.
+- Cache repository and release results.
+- Avoid sending a request for every keystroke; debounce search input.
+- Paginate results and limit the number loaded at once.
+- Handle `403`, `404`, and `429` gracefully.
+- Display when cached results are being shown.
+- Provide an explicit refresh action.
+- Do not automatically retry continuously when rate-limited.
+- Never embed a personal access token in client-side JavaScript or a public configuration file.
+
+If a future authenticated mode is needed, put authentication behind a secure server-side flow. Never ask users to paste a private token into a public shared page.
+
+### E. Initial featured repository list
+
+The implementation agent should research and curate a small list of real, active, appropriate public repositories at implementation time. Verify each repository exists, is public, has a meaningful description, and has a suitable license before featuring it. Do not invent repository names or descriptions.
+
+---
+
+## 4.6 Image Library — Search, View, and Download
+
+Create an image search area that feels like a BBS graphics file catalog.
+
+### A. Search experience
+
+Provide search categories such as:
+
+- Retro Computers
+- Vintage Hardware
+- Space & Astronomy
+- Nature
+- Architecture
+- Abstract / Desktop Backgrounds
+- Public-Domain Art
+- ANSI & Pixel Art
+
+Allow free-text image search.
+
+### B. Preferred image sources
+
+Use sources that provide programmatic access and useful licensing metadata:
+
+1. **Openverse API** — search for openly licensed images and retrieve attribution/license/source metadata.
+2. **Wikimedia Commons** — search Commons media and retrieve original file/source information and licensing metadata.
+3. **NASA image/feed resources** — use official NASA media resources where appropriate, while respecting NASA usage guidance and any third-party credit notices.
+4. **Optional licensed providers** — Unsplash or Pexels only if the required API setup, keys, attribution, and provider terms are handled correctly.
+
+### C. Google Images requirement
+
+Do not scrape Google Images result pages or extract image URLs from its HTML. Do not build a new dependency on the Google Custom Search JSON API: Google's official documentation says that this API is closed to new customers and that existing customers must transition by January 1, 2027.
+
+If the user wants Google as a discovery option, provide an `OPEN GOOGLE IMAGE SEARCH` action that opens a normal Google Images search in a new tab using the visitor's query. Keep in-app search and downloads powered by Openverse, Wikimedia Commons, NASA, or another provider whose API and terms permit the use.
+
+### D. Image result metadata
+
+Every result should show:
+
+- Thumbnail.
+- Title or description.
+- Creator/author, if available.
+- Source website.
+- License name and license URL, if available.
+- Original image page link.
+- Direct download link, if provided and permitted.
+- Image dimensions and file type, if available.
+
+### E. Download behavior
+
+- Open an image detail screen before download.
+- Show attribution and license information before the user downloads.
+- Prefer the provider's direct download/original file URL when permitted.
+- If direct browser download is blocked by CORS or provider rules, open the original image page and explain why.
+- Do not silently download images or bulk-download entire result sets.
+- Do not remove creator credits or license information from the local download record.
+
+### F. Attribution and copyright safeguards
+
+The project must not present an image as free to reuse merely because it is visible in search results. Show the exact license metadata returned by the provider and link to the source page. If no reliable license is available, label the item `LICENSE NOT VERIFIED` and allow only a link to the source page, not a claim that it is free for reuse.
+
+Do not hotlink or cache images in a way that conflicts with provider terms. Do not use image search as a mechanism to copy copyrighted images from arbitrary websites.
+
+---
+
+## 4.7 Door Games and Retro Utilities
+
+Classic BBS systems often exposed separate text-based programs called *doors*. Create a small set of original, browser-based door experiences that keep the retro atmosphere.
+
+Suggested first-release doors:
+
+1. **ANSI Maze** — navigate a text maze with arrow keys or WASD.
+2. **Trivia Terminal** — computing, Internet history, science, and retro technology questions.
+3. **Text Adventure** — a short original adventure controlled through typed commands.
+4. **Typing Challenge** — reproduce a displayed line of text and receive a simple accuracy/speed result.
+5. **System Explorer** — a playful simulated command-line tour of fictional CYBER BBS directories.
+
+Requirements:
+
+- Each door must be original or use content with appropriate reuse rights.
+- Include a clear way to return to the BBS main menu.
+- Save local high scores and completion records in IndexedDB.
+- Do not include gambling, betting, real-money mechanics, or prize mechanics.
+- Do not reproduce proprietary commercial door-game assets or code.
+
+---
+
+## 4.8 User Directory and Presence Simulation
+
+Create a classic `WHO IS ONLINE` area.
+
+In local-only mode, clearly label entries as fictional/sample users or local profiles. Do not claim to show real visitors unless a real shared presence service is implemented.
+
+Possible fields:
+
+- Handle.
+- Location text only if voluntarily supplied; avoid requiring it.
+- User class (Guest, New User, Sysop — simulated labels where applicable).
+- Join date.
+- Last activity.
+- Short profile/signature.
+
+Create a `SYSOP` profile for the BBS operator. The Sysop may have access to local configuration and maintenance screens, but this is a local simulated role, not a secure server administrator account.
+
+---
+
+## 4.9 System Status and BBS Information
+
+Build a system status screen containing:
+
+- System name: CYBER BBS.
+- Version/build identifier.
+- Current local time and date.
+- Simulated connection speed.
+- Current session duration.
+- Local storage status and approximate usage where available.
+- Number of local messages, bookmarks, and downloads recorded.
+- News feed health.
+- GitHub API health/cache status.
+- Image provider health/cache status.
+- Whether optional proxy services are configured.
+
+Use accurate status descriptions. For example, use `LIVE API`, `CACHED`, `UNAVAILABLE`, or `LOCAL ONLY`; do not show a green `ONLINE` status for an integration that has failed.
+
+---
+
+## 4.10 Help and Command Reference
+
+Create an on-screen help area and support commands such as:
+
+- `HELP` — list commands.
+- `MENU` — return to the main menu.
+- `NEWS` — open news and bulletins.
+- `BOARDS` — open message boards.
+- `MAIL` — open local mailbox.
+- `FILES` — open file areas.
+- `GITHUB` — open repository library.
+- `IMAGES` — open image library.
+- `DOORS` — open door games.
+- `WHO` — open user directory.
+- `STATUS` — open system status.
+- `SETTINGS` — open preferences.
+- `CLS` — clear the terminal screen.
+- `LOGOFF` — end the simulated session.
+
+Commands should be case-insensitive. Show contextual command hints at the bottom of each screen.
+
+---
+
+## 5. Application Flow and Screen Map
+
+Implement the following user journey:
+
+1. **Landing / Power-On Screen**
+   - CYBER BBS ASCII logo.
+   - Short description: `A DIGITAL MEETING PLACE — EST. 1994 (SIMULATED)`.
+   - `CONNECT` button.
+   - Sound indicator and accessibility options.
+
+2. **Modem Sequence**
+   - Simulated dialing, ringing, handshake, carrier, and connection confirmation.
+   - Skip and Hang Up controls.
+
+3. **Login Screen**
+   - Guest Login.
+   - New Local User.
+   - Returning Local User.
+
+4. **Welcome / Bulletin Screen**
+   - Welcome text.
+   - Latest system bulletin.
+   - Last-login summary for a returning local profile.
+   - Continue to Main Menu.
+
+5. **Main Menu**
+   - All feature areas and keyboard shortcuts.
+
+6. **Feature Screens**
+   - News, boards, mail, files, GitHub, images, doors, user directory, status, and settings.
+
+7. **Logoff Screen**
+   - Disconnect message.
+   - Simulated modem hang-up sound only if sound is enabled.
+   - Return to the landing screen.
+
+Navigation must be predictable. Escape should close dialogs or return to the previous level where safe. Back navigation must not silently lose a draft or local post.
+
+---
+
+## 6. Recommended Technical Design
+
+### 6.1 Technology choices
+
+Use:
+
+- HTML5 for semantic structure.
+- CSS for terminal layout, ANSI colors, responsive behavior, CRT effects, and themes.
+- Modern vanilla JavaScript modules for behavior and integrations.
+- IndexedDB for structured local data and optional local file blobs.
+- localStorage for small preferences only.
+- Fetch API for permitted external API access.
+- DOMParser for RSS/Atom parsing, followed by strict safe text rendering.
+- Web Audio API for original simulated modem tones.
+- Blob/object URLs and normal browser download flows where appropriate.
+- Service Worker only if offline caching is implemented and tested.
+
+Avoid introducing a front-end framework unless the repository already requires one. The primary target is a lightweight, inspectable application that can run without a complex build system.
+
+### 6.2 Suggested project layout
+
+The implementation agent may adjust this layout if the existing repository has conventions, but keep the responsibilities separated:
+
+- `index.html` — primary application entry point.
+- `assets/css/` — terminal theme, layout, responsive styles, animation styles.
+- `assets/js/app/` — application startup, navigation, state, command parser.
+- `assets/js/ui/` — terminal renderer, menu, dialogs, notifications, keyboard handling.
+- `assets/js/features/` — news, boards, mail, file areas, GitHub, images, doors, profile, status, settings.
+- `assets/js/integrations/` — RSS, GitHub, Openverse, Wikimedia, optional proxy adapters.
+- `assets/js/storage/` — IndexedDB schema, migrations, local preferences, import/export.
+- `assets/data/` — built-in bulletins, sample boards, curated repositories, starter feeds.
+- `assets/audio/` — only original/licensed assets, if audio files are used.
+- `assets/images/` — original logo/artwork and local UI assets.
+- `service-worker.js` — optional offline support.
+- `serverless/` — optional proxy implementation, kept separate from the static front end.
+- `README.md` — setup, local run, deployment, API configuration, limitations.
+- `LICENSE` — project license chosen by the owner.
+
+Do not put API secrets in any file that is deployed publicly.
+
+### 6.3 State and navigation
+
+Use a single application state model for:
+
+- Current screen/section.
+- Current profile and session state.
+- Connection animation status.
+- Theme, font, sound, and accessibility preferences.
+- Selected board, message, feed, repository, file, or image.
+- Current command input and history.
+- Loading/error/cache state for integrations.
+
+Keep feature modules independent of the visual renderer. For example, the GitHub module should return normalized repository/release records; the terminal UI decides how to display them.
+
+### 6.4 Local storage model
+
+Use IndexedDB for structured records such as:
+
+- Local profiles.
+- Boards and messages.
+- Local mail.
+- Read/unread markers.
+- Bookmarks.
+- Download history.
+- Imported local files, if enabled.
+- Cached feed items and API results.
+- Door-game records and high scores.
+
+Use localStorage only for small preferences such as theme, sound enabled/disabled, volume, and font size.
+
+Add a database version and migration mechanism. Include `EXPORT MY DATA` and `RESET LOCAL DATA` actions. Ask for confirmation before clearing data. Explain that clearing browser site data may also remove locally stored BBS data.
+
+### 6.5 Data normalization
+
+Normalize external records before rendering. The user interface should not depend directly on provider-specific JSON/XML structures.
+
+Create consistent internal record shapes for:
+
+- News item.
+- Repository.
+- Release and release asset.
+- Image result.
+- File listing.
+- Local message.
+- Local profile.
+
+Store provider/source identifiers and original URLs so users can trace content back to its source.
+
+---
+
+## 7. External Services and API Integration Plan
+
+### 7.1 RSS/Atom feeds
+
+- Maintain a configurable registry of feed URLs, titles, categories, and attribution labels.
+- Validate the starter URLs during implementation.
+- Support RSS 2.0 and common Atom formats.
+- Parse titles, links, dates, descriptions, and source metadata.
+- Limit the number of items stored per feed.
+- Cache successful results and display the cached timestamp.
+- Handle redirects, timeouts, malformed XML, network errors, and CORS failures.
+- Do not display feed HTML as trusted application markup.
+
+### 7.2 GitHub
+
+- Use GitHub REST API endpoints for repository search/details and releases.
+- Use public endpoints without a token for the static-first version.
+- Cache and pace calls in accordance with GitHub's current limits.
+- Prefer official release assets and source archive links.
+- Display rate-limit or API-unavailable status in the UI.
+- Do not scrape GitHub HTML pages to obtain structured data.
+
+### 7.3 Openverse
+
+- Use the Openverse API search endpoint for openly licensed media discovery.
+- Preserve the returned creator, license, attribution, source page, and image URLs.
+- Handle rate limits and API response changes.
+- Verify the actual media license before presenting a result as reusable.
+
+### 7.4 Wikimedia Commons
+
+- Use Wikimedia Commons' supported search/API capabilities rather than scraping pages.
+- Retrieve file metadata and license/author information where available.
+- Link to the original Commons file description page.
+- Respect Wikimedia API etiquette, attribution, and usage guidance.
+
+### 7.5 NASA media
+
+- Use official NASA RSS feeds and NASA media resources for space-related news and imagery.
+- Check each item's credit line and NASA media usage guidance.
+- Do not assume every image on a NASA page is automatically free of third-party restrictions.
+
+### 7.6 Proxy configuration
+
+If a proxy is implemented, provide a small configuration document explaining:
+
+- Proxy base URL.
+- Allowed upstream hosts/feed domains.
+- Cache duration.
+- Rate limits.
+- Required environment variables.
+- Deployment procedure.
+
+If no proxy URL is configured, the app must continue in static-only mode.
+
+---
+
+## 8. Security, Privacy, and Content Safety
+
+Security must be designed in, even though this is a nostalgic simulator.
+
+### 8.1 Untrusted external content
+
+Treat all external data as untrusted:
+
+- RSS titles and descriptions.
+- GitHub descriptions and release notes.
+- Image titles, descriptions, creator names, and tags.
+- User-entered board posts and mail.
+- Uploaded local file names and metadata.
+
+Render plain text safely. If Markdown rendering is used, sanitize it with a maintained sanitizer and disable unsafe HTML. Never inject untrusted HTML directly into the page.
+
+### 8.2 URL validation
+
+- Permit only `https:` external links by default.
+- Reject `javascript:`, `data:`, `file:`, and unexpected schemes for navigation/download targets.
+- Open external links in a new tab with appropriate opener protections.
+- Do not blindly fetch arbitrary URLs supplied by a user.
+- If a serverless proxy exists, enforce an explicit upstream host allowlist to prevent SSRF.
+
+### 8.3 Secrets and authentication
+
+- No API secret, private token, or server credential may be embedded in public JavaScript.
+- Do not request a GitHub personal access token in the normal visitor workflow.
+- If a future authenticated service is required, implement authentication server-side and document the security model.
+
+### 8.4 Local data and privacy
+
+- Clearly identify what is stored locally.
+- Do not send local message-board content or profile data to external services.
+- Provide export and reset controls.
+- Avoid unnecessary personal information.
+- Do not claim that local mail or posts are private against someone who has access to the same browser/device profile.
+
+### 8.5 Downloads and uploads
+
+- Do not auto-execute, auto-install, or auto-open downloaded files.
+- Show source and file details before download.
+- Apply size limits to locally imported files.
+- Treat upload names and MIME types as untrusted.
+- Keep local imports local unless a separate shared-backend upload system is deliberately implemented.
+
+### 8.6 Accessibility and comfort
+
+- Sound is opt-in and user-controlled.
+- Provide a reduced-motion option.
+- Avoid intense flashing or rapid strobing effects.
+- Ensure adequate contrast and readable text sizes.
+- All interactive features must be keyboard-operable.
+- Provide visible focus indicators.
+
+---
+
+## 9. User Experience and Visual Quality Requirements
+
+The project should look deliberately designed, not like a plain HTML page with green text.
+
+### Must-have details
+
+- Original CYBER BBS ASCII/ANSI logo.
+- Consistent line art and menu frames.
+- Cursor blink and subtle terminal typing animation.
+- Optional CRT scanlines and glow.
+- Classic status headers and footer prompts.
+- Distinct success, warning, and error terminal messages.
+- A convincing connection log.
+- Small, original ANSI art panels for welcome and system notices.
+- Sound controls always easy to find.
+
+### Avoid
+
+- Modern dashboard cards as the primary visual language.
+- Large rounded buttons everywhere.
+- Excessive gradients and glassmorphism.
+- Excessive animation that slows navigation.
+- Fake live activity presented as real.
+- Fake download progress that misrepresents the actual network transfer.
+- Placeholder buttons that do nothing.
+
+### Responsive behavior
+
+Desktop is the primary target, but the website must remain usable on tablets and phones. On small displays:
+
+- Keep menus readable and touch targets large enough.
+- Reflow status information.
+- Wrap long repository names and URLs safely.
+- Use a compact terminal layout instead of shrinking text to illegibility.
+- Preserve access to all features.
+
+---
+
+## 10. Implementation Phases and Delivery Order
+
+Implement in increments. Each phase must be tested before moving to the next. Do not build all screens as disconnected mockups and then attempt to connect them at the end.
+
+### Phase 0 — Repository inspection and implementation plan
+
+- Inspect the current project directory and existing files before changing anything.
+- Identify whether a project already exists and preserve useful existing work.
+- Confirm the target is a static website with `index.html` as the entry point.
+- Create or update the project README.
+- Record any external API/provider limitations discovered during implementation.
+
+**Exit criteria:** A clear file structure and implementation checklist exist; no existing project assets have been overwritten without inspection.
+
+### Phase 1 — Visual shell and terminal engine
+
+- Create the landing screen and CYBER BBS identity.
+- Implement terminal layout, themes, status line, cursor, and responsive behavior.
+- Implement keyboard command input and command history.
+- Implement a reusable menu/navigation system.
+- Add the `HELP`, `MENU`, `CLS`, `STATUS`, and `LOGOFF` commands.
+
+**Exit criteria:** The user can navigate a coherent terminal shell using both keyboard and mouse, with no dead menu items.
+
+### Phase 2 — Modem connection and session lifecycle
+
+- Implement the connection state machine.
+- Add simulated dialing/ringing/handshake/carrier messages.
+- Add original modem-inspired audio or generated tones.
+- Add sound toggle, volume, skip, and hang-up behavior.
+- Implement guest login and local profile selection/creation.
+- Add welcome and bulletin screens.
+
+**Exit criteria:** The visitor can connect, enter the BBS, and log off cleanly. Audio never begins without user interaction.
+
+### Phase 3 — Local persistence and core BBS functions
+
+- Create IndexedDB schema and migration versioning.
+- Implement profile persistence and settings.
+- Implement local message boards and threaded replies.
+- Implement local mailbox.
+- Implement bookmarks, read/unread markers, and activity history.
+- Implement data export/reset.
+
+**Exit criteria:** Data survives reloads in the same browser; export and reset work; all local-only limitations are visible.
+
+### Phase 4 — News and live feeds
+
+- Implement RSS/Atom parsing and normalized news records.
+- Add and validate starter feed sources.
+- Implement feed health, caching, manual refresh, bookmarks, and search.
+- Implement direct-fetch/proxy fallback and clear CORS errors.
+- Ensure all external article links work.
+
+**Exit criteria:** At least two validated live sources load current items in the target deployment environment, and failures degrade gracefully.
+
+### Phase 5 — GitHub repository catalog
+
+- Implement public repository search/details.
+- Implement release discovery and release asset listing.
+- Implement caching and rate-limit handling.
+- Implement official browser download links.
+- Add a curated starter list with verified repositories.
+
+**Exit criteria:** A visitor can search a real public repository, inspect its metadata/releases, and open or download an official release asset where available.
+
+### Phase 6 — Image library
+
+- Implement Openverse search.
+- Implement Wikimedia Commons search/metadata where supported.
+- Add NASA image/feed integration where appropriate.
+- Implement attribution/license panels and source links.
+- Add direct browser download where permitted and external-page fallback.
+- Add the optional Google Images external-search shortcut without scraping.
+
+**Exit criteria:** Image results show source and license metadata; an image can be opened or downloaded when the provider permits it; unverified-license items are not labeled as free.
+
+### Phase 7 — File areas and local upload sandbox
+
+- Build file area categories and listing/detail screens.
+- Integrate GitHub release/source downloads and project-provided files.
+- Implement simulated XMODEM/ZMODEM transfer display without altering actual browser transfer behavior.
+- Implement optional local upload using IndexedDB.
+- Add source, file type, size, and safety messaging.
+
+**Exit criteria:** Real downloads work for supported sources; simulated upload is clearly local-only; no file is automatically executed.
+
+### Phase 8 — Door games, user directory, and status tools
+
+- Implement original door games.
+- Add local high-score records.
+- Add sample user directory entries with clear labels.
+- Implement detailed system status and provider health displays.
+
+**Exit criteria:** Each door is playable and has a reliable return path; simulated presence is never represented as real visitors.
+
+### Phase 9 — Polish, accessibility, deployment, and documentation
+
+- Test Chrome and Edge on Windows 11.
+- Test keyboard-only navigation.
+- Test narrow mobile layout.
+- Test reduced-motion and sound-off settings.
+- Verify external APIs and deployment CORS behavior.
+- Verify local persistence and migration behavior.
+- Add project documentation and troubleshooting steps.
+- Deploy a static build and, only if needed, the optional serverless proxy.
+
+**Exit criteria:** The app can be deployed from documented instructions, and all critical acceptance tests pass.
+
+---
+
+## 11. Testing and Acceptance Criteria
+
+The implementation is not complete just because the screens look correct. Use the following acceptance tests.
+
+### 11.1 Startup and connection
+
+- Opening `index.html` through the documented local server shows the CYBER BBS landing screen.
+- The CONNECT action starts the simulated connection sequence.
+- The connection sequence can be skipped.
+- Hang Up stops the sequence and returns to the landing screen.
+- Audio does not play before the visitor clicks Connect.
+- Sound can be muted at any time.
+- The interface clearly states that the modem connection is simulated.
+
+### 11.2 Terminal navigation
+
+- Every main-menu item opens a working screen.
+- Keyboard commands and visible menu controls both work.
+- Unknown commands produce a helpful message.
+- Escape/back navigation behaves consistently.
+- No placeholder button is presented as functional.
+
+### 11.3 Local data
+
+- A local profile survives page reload.
+- A local board post survives page reload.
+- A reply remains linked to its parent message.
+- Local mail can be composed, viewed, and deleted.
+- Bookmarks and read states persist.
+- Export produces a usable file.
+- Reset asks for confirmation and removes only the intended local BBS data.
+
+### 11.4 News
+
+- At least two RSS/Atom sources are validated and load real recent entries.
+- Publication dates are displayed correctly when present.
+- External article links open the source website.
+- A broken feed does not crash the app.
+- Cached items remain accessible when a feed is temporarily unavailable.
+- Feed descriptions are rendered safely as text.
+
+### 11.5 GitHub
+
+- Search returns real repositories.
+- Repository details match GitHub data.
+- Release information is shown when available.
+- The app handles repositories without releases.
+- The app handles `404`, rate limiting, and network errors.
+- Download links point to official GitHub assets/source archives.
+- No private token appears in browser source or network responses.
+
+### 11.6 Images
+
+- Search returns real provider results.
+- Results show creator/source/license metadata where provided.
+- Items without verified license metadata are labeled accordingly.
+- The original source page can be opened.
+- Direct download works only when the provider permits it.
+- A failed image/API request does not break the terminal.
+- Google Images is opened as an external search page only; no scraping is used.
+
+### 11.7 Files
+
+- File areas show real source information.
+- A supported file can be downloaded through the browser.
+- A blocked direct download falls back to the provider's official page.
+- Transfer animation is labeled simulated.
+- Local upload is visible only in the current browser and says so.
+- The application never executes a downloaded or imported file.
+
+### 11.8 Accessibility and compatibility
+
+- Core navigation works without a mouse.
+- Focus is visible.
+- Sound can be disabled permanently in preferences.
+- Reduced motion disables optional CRT/typing animations.
+- Text remains readable on mobile.
+- Chrome and Edge on Windows 11 complete the core flow without uncaught console errors.
+
+---
+
+## 12. Performance and Reliability Targets
+
+- The local BBS shell should load quickly and should not wait for third-party APIs before showing the main interface.
+- External integrations should load asynchronously and independently.
+- A slow or unavailable source must not freeze the entire terminal.
+- Use request timeouts and cancellation where suitable.
+- Debounce search fields.
+- Cache API responses with sensible expiration periods.
+- Avoid polling external APIs continuously; use manual refresh and conservative background refresh intervals only when enabled.
+- Limit the number of feed items, repository results, and image thumbnails loaded at once.
+- Avoid large bundled assets; use CSS or small original assets for the retro look.
+- Provide a clear loading state and a useful error state for every external integration.
+
+---
+
+## 13. Deployment and Windows Developer Workflow
+
+The implementation should be easy for another CLI-based AI agent to build and verify on a Windows 11 machine.
+
+### Local development
+
+- Keep the project framework-free unless there is an existing reason not to.
+- Document the exact local start procedure in `README.md`.
+- Serve the project over local HTTP rather than relying exclusively on `file://`; browser module loading, service workers, and cross-origin behavior can differ when opening files directly.
+- Do not require Docker for the static core.
+- Keep any optional serverless proxy in its own directory with independent setup instructions.
+
+### Deployment
+
+Document at least one static deployment path, preferably GitHub Pages or Cloudflare Pages. Explain any differences between local and deployed API behavior.
+
+If a proxy is needed for reliable RSS or API access, document its separate deployment and environment variables. The static site must remain able to run without it, with clear degraded-mode messaging.
+
+### Repository hygiene
+
+- Include a clear README.
+- Include a license file chosen by the project owner.
+- Exclude secrets and local environment files from version control.
+- Keep source modules organized by responsibility.
+- Add a concise changelog or version history.
+- Do not commit downloaded third-party images or binaries unless their licenses explicitly permit redistribution and the required attribution is included.
+
+---
+
+## 14. Suggested Default Content and Branding
+
+### Product identity
+
+- **Name:** CYBER BBS
+- **Subtitle:** `YOUR GATEWAY TO THE DIGITAL FRONTIER`
+- **Era reference:** `ONLINE SINCE 1994 — SIMULATED`
+- **Welcome line:** `WELCOME, TRAVELER. YOUR SESSION IS NOW CONNECTED.`
+- **Sysop alias:** `SYSOP`
+
+These are suggested original strings. Keep all interface language in English.
+
+### Default main menu layout
+
+Use a compact ANSI-style layout with a title banner, system status, and two-column or single-column menu depending on screen width. Include shortcut hints, for example:
+
+- `[N]` News & Bulletins
+- `[M]` Message Boards
+- `[E]` Electronic Mail
+- `[F]` File Areas
+- `[G]` GitHub Repository Library
+- `[I]` Image Library
+- `[D]` Door Games
+- `[U]` User Directory
+- `[S]` System Status
+- `[P]` Preferences
+- `[H]` Help
+- `[Q]` Log Off
+
+### Sample system messages
+
+- `CARRIER DETECTED...`
+- `REMOTE SYSTEM IDENTIFIED: CYBER BBS`
+- `WELCOME BACK, {HANDLE}.`
+- `NEW MESSAGES: {COUNT}`
+- `SCANNING FILE AREAS...`
+- `CHECKING NETWORK FEEDS...`
+- `NO CARRIER — SESSION TERMINATED.`
+
+Clearly distinguish simulated modem/session messages from real API connection states.
+
+---
+
+## 15. Explicit Non-Goals for the First Release
+
+Do not spend first-release effort on:
+
+- A real telephone modem or serial-port connection.
+- Real telephone calls or fax transmission.
+- A real multi-user networked BBS backend.
+- Public registration with server-side accounts.
+- Real email delivery.
+- Unrestricted file hosting or public uploads.
+- Scraping Google Images or arbitrary websites.
+- Downloading or mirroring copyrighted files without permission.
+- A full implementation of historical transfer protocols.
+- Complex multiplayer door games.
+- Blockchain, cryptocurrency, payment, or unrelated modern features.
+
+These can be considered separately only if the owner explicitly changes the scope and the required backend, policies, and security model are defined.
+
+---
+
+## 16. Final Instructions to the Implementation Agent
+
+Treat this document as the implementation specification.
+
+1. Inspect the existing working directory before creating or replacing files.
+2. Build a polished, usable CYBER BBS experience, not a static visual mockup.
+3. Use English for every user-facing string.
+4. Make `index.html` the primary application entry point.
+5. Prefer a lightweight, framework-free static implementation.
+6. Implement and test the phases in order; do not leave dead buttons or fake integrations.
+7. Use real APIs for news, GitHub, and openly licensed image search.
+8. Do not scrape Google Images. Provide an external Google Images search shortcut only if useful.
+9. Make CORS, API rate limits, external failures, and local-only storage limitations visible and understandable.
+10. Never expose secrets in client-side code.
+11. Do not claim that local posts, local mail, simulated online users, modem sounds, or file-transfer animations are real network activity.
+12. Do not execute imported or downloaded files.
+13. Add a README with Windows local-run instructions, deployment instructions, API/provider notes, and known limitations.
+14. Run the acceptance tests in this blueprint and fix failures before declaring the project complete.
+15. At completion, provide a concise implementation report listing completed features, files created, integrations verified, tests performed, limitations, and any optional proxy configuration still required.
+
+**Definition of done:** A visitor can open the deployed CYBER BBS website, experience a convincing dial-up connection sequence, navigate the BBS through a keyboard-driven terminal interface, use local boards and mailbox, read real current news, browse real GitHub repositories and releases, search openly licensed images, download supported files, play original door games, and understand exactly which functions are simulated versus connected to real services.
+
+---
+
+## 17. Official Documentation and Starting References
+
+The implementation agent must re-check current documentation and provider terms before coding because APIs, rate limits, and feed endpoints can change.
+
+### News and RSS
+
+- NASA RSS Feeds: <https://www.nasa.gov/rss-feeds/>
+- Ars Technica RSS Feeds: <https://arstechnica.com/rss-feeds/>
+- BBC News RSS example: <https://feeds.bbci.co.uk/news/rss.xml>
+
+### GitHub
+
+- GitHub REST API — Releases: <https://docs.github.com/en/rest/releases/releases>
+- GitHub REST API — Rate Limits: <https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api>
+
+### Image search and licensing
+
+- Openverse API: <https://api.openverse.org/v1/>
+- Openverse project/documentation: <https://docs.openverse.org/>
+- Wikimedia Commons API: <https://www.mediawiki.org/wiki/API:Main_page>
+- Wikimedia Commons: <https://commons.wikimedia.org/>
+- NASA Image and Video Library: <https://images.nasa.gov/>
+- Google Custom Search JSON API status: <https://developers.google.com/custom-search/v1/overview>
+
+### Browser platform capabilities
+
+- MDN — CORS: <https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/CORS>
+- MDN — IndexedDB: <https://developer.mozilla.org/en-US/docs/Web/API/IndexedDB_API>
+- MDN — Web Storage: <https://developer.mozilla.org/en-US/docs/Web/API/Web_Storage_API>
+- MDN — Web Audio API best practices: <https://developer.mozilla.org/en-US/docs/Web/API/Web_Audio_API/Best_practices>
+- MDN — Autoplay guide: <https://developer.mozilla.org/en-US/docs/Web/Media/Guides/Autoplay>
+- MDN — Blob URLs: <https://developer.mozilla.org/en-US/docs/Web/URI/Reference/Schemes/blob>
+
+---
+
+**End of implementation blueprint — CYBER BBS**
+

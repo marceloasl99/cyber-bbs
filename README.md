@@ -2,260 +2,267 @@
 
 # CYBER BBS
 
-### Mega Edition v3.0 · A useful 1990s dial-up experience for today's web
+### Mega Edition v4.0 · The Ultimate 1990s Dial-Up Terminal Experience for the Modern Web
 
-**CYBER BBS** is a browser-based ANSI/CP437 bulletin board simulator with live news, current weather, GitHub browsing, local netmail, file areas, games, an ANSI editor, multi-node activity, and a daily briefing. It boots directly from one HTML file and works without a backend.
+**CYBER BBS** is a self-contained, browser-based ANSI/CP437 bulletin board workstation. It combines authentic 1990s dial-up telecommunications atmosphere with real-world live data utility: real-time financial quotes and sparklines, global satellite weather with moon phase tracking, seismic radars, International Space Station tracking, live streaming web radio with real-time ASCII VU meters, Wikipedia encyclopedia terminal reader, public domain classic literature with `FILE_ID.DIZ` downloads, carrier line diagnostics, 10 historic hardware video profiles (MDA, CGA, EGA, VGA, SVGA, OLED), Hayes AT modem acoustic dialing, 7 door games, local netmail, forums, and an ANSI art studio.
+
+It runs standalone directly from a single HTML file without node/backend servers, databases, or API keys.
 
 <p>
+  <a href="https://github.com/marceloasl99/cyber-bbs"><img src="https://img.shields.io/badge/version-v4.0%20Mega-ffcc00?style=flat-square" alt="Version: v4.0 Mega"></a>
   <a href="https://github.com/marceloasl99/cyber-bbs"><img src="https://img.shields.io/badge/status-active-00aa55?style=flat-square" alt="Project status: active"></a>
   <a href="https://github.com/marceloasl99/cyber-bbs/commits/main"><img src="https://img.shields.io/github/last-commit/marceloasl99/cyber-bbs?style=flat-square" alt="Last commit"></a>
   <img src="https://img.shields.io/badge/runtime-browser-0066cc?style=flat-square" alt="Runtime: browser">
-  <img src="https://img.shields.io/badge/build-none-555555?style=flat-square" alt="No build required">
+  <img src="https://img.shields.io/badge/build-zero--build-555555?style=flat-square" alt="Zero build required">
   <img src="https://img.shields.io/badge/data-live%20%2B%20offline--first-8a2be2?style=flat-square" alt="Live and offline-first data">
+  <img src="https://img.shields.io/badge/hardware%20profiles-10%20adapters-ff5555?style=flat-square" alt="10 Video Hardware Profiles">
 </p>
 
 <p>
-  <code>retro</code>
-  <code>bbs</code>
-  <code>ansi</code>
+  <code>retro-computing</code>
+  <code>bulletin-board-system</code>
+  <code>ansi-art</code>
   <code>cp437</code>
-  <code>rss</code>
-  <code>weather</code>
-  <code>github-api</code>
+  <code>hayes-modem</code>
   <code>web-audio</code>
+  <code>ascii-radar</code>
   <code>offline-first</code>
   <code>single-file</code>
 </p>
 
 <p>
-  <a href="index.html">Launch CYBER BBS</a> ·
+  <a href="index.html"><strong>🚀 Launch CYBER BBS</strong></a> ·
   <a href="#quick-start">Quick start</a> ·
-  <a href="#screenshots">Screenshots</a> ·
-  <a href="#features">Features</a>
+  <a href="#video-hardware-adapters">Video Adapters</a> ·
+  <a href="#full-door-directory">All 22 Doors</a> ·
+  <a href="#terminal-commands--controls">Commands & Controls</a> ·
+  <a href="#screenshots">Screenshots</a>
 </p>
 
 </div>
 
 <p align="center">
-  <img src="docs/screenshots/05_main_menu.png" alt="CYBER BBS Mega Edition main menu" width="48%">
-  <img src="docs/screenshots/10_today_hub.png" alt="CYBER BBS Today Hub with current information" width="48%">
+  <img src="docs/screenshots/05_main_menu.png" alt="CYBER BBS Mega Edition v4.0 Main Menu" width="48%">
+  <img src="docs/screenshots/11_market_wire.png" alt="Market Wire Quotes and CP437 Sparklines" width="48%">
 </p>
 
-## Why this project?
+---
 
-CYBER BBS preserves the atmosphere of a fictional 1995 BBS while making the experience practical today. Instead of a static mockup, it provides current RSS headlines, live weather with fallback sources, useful links, local productivity features, and replayable doors.
+## 💾 Why CYBER BBS?
 
-The fiction is operated by **DR. NOISE** on a 486DX2/66 with a USRobotics Courier 14.4k HST modem. The interface is English, keyboard-friendly, and designed around an 80×25 terminal.
+CYBER BBS bridges the visceral sensory atmosphere of mid-90s PC computing with everyday modern digital utility. Rather than a purely cosmetic retro mockup, CYBER BBS provides real-time information streams, robust offline fallbacks, functional tools, and rich interactive games.
 
-## Features
+The system is operated in fiction by **DR. NOISE** on a basement **486DX2/66** PC with a **USRobotics Courier 14.4k HST Dual Standard** modem on COM2. Everything in the interface is keyboard-first, mouse-interactive, responsive, and render-accelerated through custom HTML5 canvas sprite caching.
 
-### Current information
+---
 
-- **Today Hub:** current date/time, weather, RSS headlines, source health, and practical links.
-- **News & Live Feeds:** Hacker News, BBC World, Slashdot, NASA News, and Ars Technica.
-- **Weather Telemetry:** `wttr.in` first, Open-Meteo fallback, and a clearly labeled offline sensor.
-- **GitHub Vault:** public repository search, README reading, directory browsing, and archive links.
-- **Photo Grabber:** Wikimedia Commons search and 16-color ANSI half-block conversion.
-- **Weekly Newspaper:** generated local BBS newspaper with system activity, headlines, weather, and editorials.
+## 📼 Video Hardware Adapters (Multi-Profile Engine)
 
-### BBS experience
+CYBER BBS features a dynamic hardware profile manager that recreates authentic vintage display adapters down to their native cell dimensions, character aspect ratios, and color palettes. Press **`Alt+V`** or type **`MODE`** to switch between 10 historical profiles with real-time CRT degauss coil discharge:
 
-- **Netmail:** local inbox, replies, deletion, unread counters, multiline composition, and SysOp bot replies.
-- **Forums and One-Liners:** local posts stored in the browser.
-- **File Areas:** searchable `FILES.BBS` catalog, `FILE_ID.DIZ`, browser downloads, ZMODEM theater, and local uploads.
-- **ANSI Workshop:** gallery voting, SAUCE metadata, and a mouse/keyboard ANSI editor.
-- **Multi-Node Hopper:** switch between fictional node lines with separate callers and activity.
-- **Door Games:** Cyber Lord RPG, Star Trade, Zork-style adventure, Trivia Night, Blackjack, Hangman, Fortune, and more.
-- **Progression:** ranks, credits, login streaks, upload/download ratio, trivia score, and ANSI Master status.
+| ID | Adapter Profile | Period | Grid | Cell | Palette | Display Characteristics |
+|:---|:---|:---:|:---:|:---:|:---:|:---|
+| `vga80x25` | **IBM VGA Standard** | 1987 | 80×25 | 18×32 | 16-color VGA | Canonical 1440×800 buffer, crisp IBM 9×16 ROM font, 4:3 CRT curve |
+| `mda80x25` | **IBM MDA Monochrome** | 1981 | 80×25 | 18×32 | P1 Phosphor Green | Ultra-sharp text clarity, fine horizontal scanlines, high-contrast reading |
+| `cga40x25` | **IBM CGA Big Type** | 1981 | 40×25 | 36×32 | 16 RGBI | Bold large characters, chunky 8×8 glyphs, arcade nostalgia vibe |
+| `cga80x25` | **IBM CGA PC XT Text** | 1981 | 80×25 | 18×32 | 16 RGBI | Original 1981 IBM PC 5150 text experience with coarse scanlines |
+| `cga_comp` | **CGA Composite NTSC** | 1981 | 80×25 | 18×32 | 16 NTSC Artifact | Color artifacting emulation mimicking home television sets |
+| `ega80x43` | **IBM EGA High Density**| 1984 | 80×43 | 18×18 | 16/64-color EGA | 43 compact lines for file directories and message threads |
+| `vga80x50` | **IBM VGA 50-Line** | 1987 | 80×50 | 18×16 | 16-color VGA | High-density terminal mode with 50 compact lines |
+| `vga_13h` | **VGA Mode 13h Canvas**| 1987 | 40×25 | 36×32 | 256-color palette | Retro gaming canvas mode with chunky pixels and saturated tones |
+| `svga132x37`| **VESA SVGA 16:9** | 1991 | 132×37 | 11×21 | 16-color SVGA | High-resolution widescreen 16:9 aspect ratio for data monitoring |
+| `modern_hd`| **Modern OLED Clean** | 2026 | 120×36 | 12×22 | Truecolor Hex | Pure bezel-free zero-scanline flat digital terminal presentation |
 
-### Browser quality
+> **Interactive Degauss Coil:** Pressing degauss (or typing `DEGAUSS`) triggers a resonant acoustic electromagnetic hum with relay snap (`playDegauss()`) and a momentary chromatic aberration screen shake.
 
-- Keyboard, mouse, and terminal hit-region navigation.
-- Focus states, reduced-motion support, screen-reader metadata, and accessible labels.
-- Web Audio modem and terminal effects, activated only after user interaction.
-- Fullscreen synchronization, redraw support, and reliable back navigation.
-- Local-first fallbacks when external providers fail.
+---
 
-## Quick start
+## 🗂 Full Door Directory (All 22 Areas)
 
-### Open directly
+CYBER BBS Mega Edition v4.0 organizes its functionality across 22 functional doors and systemic utilities:
 
-Open [`index.html`](index.html) in Chrome, Edge, or Firefox. No installation, npm, database, Docker, or API key is required.
+### 📡 Live Telemetry & Information
+- **`[ 1]` News & Live Feeds (`NEWS`):** Live RSS feeds from Hacker News, BBC World, Slashdot, NASA Releases, and Ars Technica with `DataStatus` transparency badges (`[● LIVE]`, `[◐ CACHED]`, `[○ STALE]`).
+- **`[10]` Weather Station 2.0 (`WEATHER`):** Meteorological telemetry via Open-Meteo with 24-hour hourly temperature trends, 5-day daily forecasts, precipitation probability, and offline astronomical **Moon Phase calculation** (age, illumination %, glyph).
+- **`[13]` Today Hub Briefing (`TODAY`):** Consolidated daily briefing combining local weather, top global headlines, active SysOp bulletins, contest leaders, and quick-launch doors.
+- **`[15]` Weekly BBS Newspaper (`NEWSPAPER`):** Automated weekly digest with SysOp editorials, top voted artpacks, trivia champions, and exportable `.TXT` newspaper issues.
+- **`[18]` Market Wire & Forex (`MARKET`):** Real-time currency exchange rates (USD, EUR, BRL, GBP, JPY, CAD) and cryptocurrencies (BTC, ETH) via European Central Bank (Frankfurter) and AwesomeAPI, rendered with CP437 sparklines (` ▂▃▄▅▆▇█`) and built-in interactive currency converter (`CONV 100 USD BRL`).
+- **`[19]` Earth & Sky Telemetry (`EARTH`):** Real-time USGS global earthquake network monitoring (M3.5+) and International Space Station (ISS) orbital position plotted directly onto a live 74×9 ASCII world map.
+- **`[20]` Cyber Radio & ASCII VU Tuner (`RADIO`):** Internet radio streaming directory (Synthwave, Chiptune, Ambient, 80s) with background HTML5 audio playback and an animated 8-band real-time **ASCII VU Meter** (` ▂▃▄▅▆▇█`) driven by Web Audio FFT frequency data.
+- **`[21]` Wiki & Gutenberg Books (`WIKI` / `BOOKS`):** Live Wikipedia article search and reader in clean DOS formatting, alongside curated Project Gutenberg public domain classics (Frankenstein, The Time Machine, Alice in Wonderland, The Art of War) with text reader and downloads including authentic 45-column `FILE_ID.DIZ` descriptions.
+- **`[22]` Carrier & Net Diagnostics (`DIAG`):** Caller ID inspection (remote IP, ISP, ASN, calling exchange) and live HTTP ping latency matrix measuring round-trips to Cloudflare, Wikimedia, and Open-Meteo.
 
-### Run through a local HTTP server
+### 💬 Community & Communication
+- **`[ 2]` Bulletin Board & Forum (`FORUM`):** Categorized message boards with threading, reply composition in terminal, view counters, and credit rewards.
+- **`[ 3]` Netmail & Private Messages (`MAIL`):** Private mailboxes with multi-line message editor, unread message alerts, and automated SysOp bot responses.
+- **`[11]` Live SysOp Chat (`CHAT`):** Split-screen interactive chat simulator with DR. NOISE, reacting contextually to system topics, hardware, modems, and late-night queries.
+- **`[12]` One-Liners Graffiti Wall (`ONELINERS`):** Short graffiti message wall preserved in browser local storage.
+- **`[14]` Multi-Node Hopper (`NODES` / `Alt+N`):** Hop between 4 fictional node lines (14.4k HST, 28.8k V.34, 14.4k Optima, 9600 Supra) with distinct active callers and modem telemetry.
+- **`[ D]` BBS Phone Book (`PHONE` / `Alt+D`):** Speed dial directory with 5 unique remote nodes, playing acoustic DTMF dual-tone dialing before automatically negotiating and switching video profiles.
 
-HTTP mode is recommended for the most reliable behavior with RSS and weather providers:
+### 🎮 Gaming & Entertainment
+- **`[ 7]` Door Games Suite (`GAMES`):** 7 playable retro games:
+  - **Cyber Lord RPG:** Turn-based tavern brawls, dungeon crawls, monster fights, weapons shop, and dragon hunts.
+  - **Star Trade Radar:** Interstellar galactic trading, commodities arbitrage, hyperspace jumps, and pirate encounters.
+  - **Zork Bunker:** Text parser adventure exploring underground computing facilities.
+  - **Trivia Night:** High-score trivia competition with historical computing questions.
+  - **Blackjack 21:** Classic casino card game against the dealer.
+  - **Hangman:** Classic word-guessing game with ASCII gallows.
+  - **Fortune Cookie:** UNIX-style fortune and wisdom quotes.
+
+### 🎨 Files, Art & Utilities
+- **`[ 4]` File Areas & Search (`FILES`):** Searchable file libraries, `FILES.BBS` index, simulated ZMODEM download theater, and local file sandbox uploads.
+- **`[ 5]` Photo Grabber & ANSI Converter (`PHOTOS`):** Search Wikimedia Commons and convert images on the fly into 16-color ANSI half-block graphics.
+- **`[ 6]` GitHub Vault (`GITHUB`):** Public GitHub repository browser with README reader, directory trees, and source inspection.
+- **`[ 8]` ANSI Gallery & Studio (`ANSI`):** View classic demoscene CP437 screens, vote in contests, inspect SAUCE00 metadata records, export `.ANS` files, and draw custom ANSI art with mouse and keyboard.
+- **`[ 9]` World Clocks (`CLOCKS`):** Multi-timezone synchronized clocks with custom city configuration.
+- **`[16]` User Statistics & Dossier (`STATS`):** Profile statistics, caller rank progression, online duration, upload/download ratio, and call logs.
+- **`[17]` Settings & Atmosphere (`SETTINGS`):** Phosphor theme switching (Green CRT, Amber, Paper White, Flat), bezel monitor chassis skins (Classic PC, Compaq, Amiga 1084, IBM 5151), ambient fan/HDD noise, backup export/import (Schema v3), and video mode picker.
+- **`[ 0]` Logoff & Disconnect (`LOGOFF`):** Session summary calculation and carrier hangup (`ATH0`).
+
+---
+
+## ⌨ Terminal Commands & Controls
+
+Type directly at the `Command/Number> _` prompt and press `Enter`:
+
+```text
+HELP        Full command and hotkey reference
+TODAY       Current daily briefing and weather
+NEWS        RSS headlines from technology and world feeds
+WEATHER     Weather Station 2.0 with hourly trends and moon phase
+MARKET      Market Wire currency rates, crypto and sparklines
+EARTH       Earth and Sky satellite and seismic radar
+RADIO       Cyber Radio with real-time ASCII VU meter
+WIKI        Wikipedia encyclopedia search and reader
+BOOKS       Project Gutenberg classic literature library
+DIAG        Carrier telemetry and line noise diagnostics
+PHONE       BBS Phone Book speed dialer
+MODE        Switch video hardware profile (e.g. MODE CGA, MODE MDA)
+DEGAUSS     Fire CRT degaussing coil
+GRAB        Export screen as .ANS (SAUCE00) and .PNG
+SELFTEST    Execute automated 12-point diagnostic suite
+FILES       Search file areas and download shareware
+FORUM       Open message boards and discussion threads
+MAIL        Open private Netmail inbox
+GITHUB      Browse public GitHub code repositories
+GAMES       Open Door Games menu
+LORD        Play Cyber Lord RPG directly
+TRADE       Play Star Trade directly
+ZORK        Play Zork Bunker directly
+TRIVIA      Play Trivia Night directly
+ANSI        Open ANSI art gallery and editor
+CLOCKS      View world clocks
+NODES       View multi-node activity
+NEWSPAPER   Read weekly automated BBS newsletter
+STATS       Inspect caller rank and account statistics
+SETTINGS    Configure display themes, audio and backups
+PURE        Toggle bezel-free clean terminal mode
+NIGHT       Toggle after-hours 03:15 AM basement atmosphere
+LOGOFF      Disconnect and terminate carrier session
+```
+
+### Advanced Navigation
+- **Command Stacking:** Separate multiple commands with `;` to execute them sequentially without waiting (e.g. `18;C` or `NEWS;FORUM`).
+- **Command History:** Press `ArrowUp` or `ArrowDown` at the prompt to recall the last 25 executed commands.
+- **Tab Autocompletion:** Type the beginning of any command (e.g. `MAR`, `RAD`, `WIK`) and press `Tab` to autocomplete.
+- **Scrollback Buffer (500 lines):** Press `PgUp` / `PgDn` or use the mouse wheel to inspect scrolled-off lines with visual line-count overlays.
+- **Global Hotkeys:**
+  - `Alt+V`: Video Hardware Mode picker (10 profiles)
+  - `Alt+G`: Instant Screen Grabber (`.ANS` + `.PNG`)
+  - `Alt+D`: Open BBS Phone Book
+  - `Alt+N`: Hop to next node line
+  - `Ctrl+L`: Force redraw of terminal buffer
+  - `F11` / `Alt+Enter`: Toggle fullscreen mode
+  - `Esc`: Back / Cancel / Exit scrollback mode
+
+---
+
+## 📸 Screenshots
+
+<div align="center">
+  <img src="docs/screenshots/05_main_menu.png" alt="CYBER BBS Main Menu" width="32%">
+  <img src="docs/screenshots/10_today_hub.png" alt="Today Hub Briefing" width="32%">
+  <img src="docs/screenshots/11_market_wire.png" alt="Market Wire Quotes and Sparklines" width="32%">
+  <img src="docs/screenshots/12_earth_and_sky.png" alt="Earth and Sky ASCII Radar" width="32%">
+  <img src="docs/screenshots/13_cyber_radio.png" alt="Cyber Radio with ASCII VU Meter" width="32%">
+  <img src="docs/screenshots/14_net_diagnostics.png" alt="Carrier Telemetry and Diagnostics" width="32%">
+  <img src="docs/screenshots/15_phone_book.png" alt="BBS Phone Book" width="32%">
+  <img src="docs/screenshots/16_selftest.png" alt="Automated SELFTEST Suite" width="32%">
+  <img src="docs/screenshots/09_ansi_gallery.png" alt="ANSI Gallery and Contest" width="32%">
+</div>
+
+---
+
+## ⚡ Quick Start
+
+### Option 1: Open Directly in Browser (Zero Install)
+Simply double-click or open [`index.html`](index.html) in Chrome, Edge, Firefox, or Safari. No web server, Node.js, npm, or database required.
+
+### Option 2: Run via Local HTTP Server (Recommended)
+Running through a local web server ensures optimal CORS behavior when querying external RSS feeds and weather APIs:
 
 ```powershell
 python -m http.server 8080
 ```
 
-Then visit [`http://localhost:8080/index.html`](http://localhost:8080/index.html).
+Then navigate to [`http://localhost:8080/index.html`](http://localhost:8080/index.html).
 
-`cyber-bbs.html` is a synchronized standalone distribution copy.
+---
 
-## First session
+## 🛡 Privacy & Local Persistence
 
-1. Open `index.html`.
-2. Press `1`, `Enter`, or click the dial area.
-3. Press `Esc` to skip the synthesized modem handshake.
-4. Choose guest login or create a local profile.
-5. Press `1` for the main menu.
-6. Try `13` or type `TODAY` to open the current briefing.
+- **Browser Storage:** User accounts, passwords, credits, ratio, forum threads, netmail, trivia scores, and game saves are persisted strictly inside the browser's `localStorage`.
+- **Binary Sandbox:** File uploads and custom `.ANS` screens are managed client-side using `IndexedDB`.
+- **Zero Remote Tracking:** No analytics, telemetry, cookies, or remote authentication servers are used.
+- **Crypto:** Local user credentials use browser Web Crypto API (SHA-256) for local sandbox profile isolation.
 
-Use the sound button or the `M` command to mute audio.
+---
 
-## Main menu
-
-| Key | Door |
-|---:|---|
-| `1` / `N` | News & Live Feeds |
-| `2` / `B` | Bulletin Board and Forum |
-| `3` / `E` | Netmail / Private Mail |
-| `4` / `F` | File Areas and Search |
-| `5` / `P` | Photo Grabber and ANSI conversion |
-| `6` / `G` | GitHub Vault |
-| `7` / `D` | Door Games (7 Games) |
-| `8` / `A` | ANSI Gallery and Editor |
-| `9` / `H` | World Clocks |
-| `10` / `W` | Weather Station 2.0 (Hourly, 5-Day & Moon Phases) |
-| `11` / `C` | Live SysOp Chat |
-| `12` / `O` | One-Liners Wall |
-| `13` / `T` | Today Hub Briefing |
-| `14` / `M` | Multi-Node Hopper |
-| `15` / `J` | Weekly BBS Newspaper |
-| `16` / `U` | User Statistics and Last Callers |
-| `17` / `S` | Settings and Atmosphere |
-| `18` | Market Wire & Forex (Currencies, Crypto & Ticker) |
-| `19` | Earth & Sky Telemetry (ISS Radar & USGS Quakes) |
-| `20` | Cyber Radio & Real-Time ASCII VU Meter |
-| `21` | Wiki Terminal & Gutenberg Classic Literature |
-| `22` | Carrier Telemetry & Net Diagnostics |
-| `0` / `X` / `Q` | Logoff and Disconnect |
-
-## Terminal commands and controls
-
-Type commands at the terminal prompt:
-
-```text
-HELP       Full command reference
-TODAY      Current daily briefing
-NEWS       RSS headlines
-WEATHER    Current weather station 2.0
-FILES      Search file areas
-MAIL       Open Netmail
-GITHUB     Open GitHub Vault
-MARKET     Market Wire & live forex
-EARTH      Earth & Sky satellite radar
-RADIO      Cyber Radio with live ASCII VU meter
-WIKI       Wikipedia terminal search
-BOOKS      Project Gutenberg classic literature
-DIAG       Carrier & line noise diagnostics
-PHONE      Dial-up phone book directory
-MODE       Cycle or select video hardware adapter
-DEGAUSS    Fire CRT degaussing coil
-GRAB       Export screen as .ANS (SAUCE00) and .PNG
-SELFTEST   Execute automated 12-point diagnostic suite
-NODES      Multi-node status
-NEWSPAPER  Weekly BBS newspaper
-STATS      User statistics
-SETTINGS   Preferences and export/restore
-PURE       Toggle clean text-only mode
-NIGHT      Toggle after-hours atmosphere
-LOGOFF     Disconnect
-```
-
-| Control | Action |
-|---|---|
-| `Enter` / `Space` | Activate the selected item |
-| Arrow keys / `Tab` | Move through terminal regions / Autocomplete commands |
-| `ArrowUp` / `ArrowDown` | Cycle command history (last 25 commands) |
-| `;` delimiter | Chain commands (e.g. `18;C` or `NEWS;FORUM`) |
-| `PgUp` / `PgDn` | Scroll through 500-line scrollback buffer |
-| `Esc` | Cancel, exit scrollback, or go back |
-| `Alt+V` | Open Video Hardware Mode selector (10 profiles) |
-| `Alt+G` | Screen Grab (.ANS with SAUCE00 + .PNG) |
-| `Alt+D` | Open BBS Phone Book |
-| `F11` / `Alt+Enter` | Toggle fullscreen |
-| `Ctrl+L` | Redraw the current screen |
-| `Alt+N` | Hop to the next fictional node |
-| Mouse click | Activate highlighted rows |
-| Mouse wheel | Scroll terminal scrollback or page through views |
-
-## Screenshots
-
-<div align="center">
-  <img src="docs/screenshots/05_main_menu.png" alt="CYBER BBS main menu" width="32%">
-  <img src="docs/screenshots/10_today_hub.png" alt="CYBER BBS Today Hub" width="32%">
-  <img src="docs/screenshots/11_market_wire.png" alt="Market Wire quotes and sparklines" width="32%">
-  <img src="docs/screenshots/12_earth_and_sky.png" alt="Earth and Sky ASCII radar" width="32%">
-  <img src="docs/screenshots/13_cyber_radio.png" alt="Cyber Radio with ASCII VU meter" width="32%">
-  <img src="docs/screenshots/14_net_diagnostics.png" alt="Carrier telemetry and net diagnostics" width="32%">
-  <img src="docs/screenshots/15_phone_book.png" alt="BBS Phone Book" width="32%">
-  <img src="docs/screenshots/16_selftest.png" alt="Automated SELFTEST diagnostic suite" width="32%">
-  <img src="docs/screenshots/09_ansi_gallery.png" alt="CYBER BBS ANSI gallery" width="32%">
-</div>
-
-Regenerate screenshots from the public entry point:
-
-```powershell
-python tools\capture_screenshots.py
-```
-
-## Live data and offline behavior
-
-| Door | Primary source | Fallback |
-|---|---|---|
-| News | RSS/Atom feeds | Cached headlines and archive digest |
-| Weather | `wttr.in` | Open-Meteo, then local sensor message |
-| GitHub | Public GitHub REST API | Seed repositories |
-| Images | Wikimedia Commons | Search link and cached metadata |
-
-The interface labels data as `LIVE`, `CACHED`, or `OFFLINE`. External data is never required for booting the BBS.
-
-## Privacy and local persistence
-
-- `localStorage` stores profiles, preferences, forums, netmail, ranks, settings, and game saves.
-- IndexedDB stores uploaded file contents and local binary data.
-- Browser data is not synchronized with other users.
-- Local mail and forum posts are not sent to a public server.
-- Passwords use browser Web Crypto hashing, suitable for local demo profiles only.
-- There is no analytics, telemetry, or remote account system.
-
-## Project structure
+## 🛠 Project Architecture & Development
 
 ```text
 cyber-bbs/
-├── index.html                 # Canonical standalone application
-├── cyber-bbs.html             # Synchronized distribution copy
-├── index-modular.html         # Preserved earlier modular entry point
-├── README.md
-├── LICENSE-THIRD-PARTY.md
+├── index.html                 # Canonical production single-file bundle (~431 KB)
+├── cyber-bbs.html             # Synchronized standalone distribution copy
+├── index-modular.html         # Modular developmental entry point
+├── README.md                  # Comprehensive documentation and manual
+├── LICENSE-THIRD-PARTY.md     # Font and asset license attributions
 ├── assets/
-│   ├── css/                   # CRT and terminal styling sources
-│   ├── fonts/                 # Px437 IBM VGA fonts
-│   └── js/                    # Modular application sources
-├── docs/screenshots/          # Current UI captures
+│   ├── css/                   # CRT shaders, scanlines and bezel chassis styles
+│   ├── fonts/                 # Px437 IBM VGA 8x16 and 9x16 bitmap fonts
+│   └── js/                    # Modular application architecture:
+│       ├── audio.js           # Web Audio synthesizer, DTMF tones, degauss, Cyber Radio
+│       ├── store.js           # Local persistence, schema v3, ranks, file catalog
+│       ├── net.js             # Resilient networking layer with DataStatus envelopes
+│       ├── ansi.js            # SAUCE00 parser, image-to-ANSI and buffer-to-ANSI converter
+│       ├── term.js            # CP437 canvas renderer, glyph cache, 10 video profiles
+│       ├── games.js           # Door Games engine (Cyber Lord, Star Trade, Zork, etc.)
+│       ├── doors.js           # 22 functional system doors and user interfaces
+│       └── app.js             # Master controller, command router and keyboard dispatcher
+├── docs/screenshots/          # 16 automated Playwright test captures
 └── tools/
-    ├── bundle.mjs             # Synchronizes index.html to cyber-bbs.html
-    └── capture_screenshots.py # Playwright capture workflow
+    ├── bundle.mjs             # Compiles modular assets/ into canonical single-file
+    ├── capture_screenshots.py # Playwright automated visual regression test runner
+    └── test_diagnostics.py    # Headless in-browser diagnostic test script
 ```
 
-## Development
-
-The canonical product is the self-contained `index.html`:
-
+### Rebuilding Bundles & Testing
 ```powershell
-node tools\bundle.mjs
-node --check .\tools\bundle.mjs
-python tools\capture_screenshots.py
-git diff --check
+# 1. Compile modular scripts into standalone index.html and cyber-bbs.html
+node tools/bundle.mjs
+
+# 2. Run automated headless in-browser diagnostic verification
+python tools/test_diagnostics.py
+
+# 3. Capture automated screenshots of all 16 screens
+python tools/capture_screenshots.py
 ```
 
-The modem, ZMODEM transfer, SysOp replies, node activity, and bot responses are simulations. A backend would be required for real multi-user boards, public mail delivery, synchronized presence, and shared uploads.
+---
 
-## Attribution and license
+## 📜 Attribution & License
 
-The embedded Px437 IBM VGA fonts are attributed to VileR and the Oldschool PC Font Pack under CC BY-SA 4.0. See [`LICENSE-THIRD-PARTY.md`](LICENSE-THIRD-PARTY.md).
-
-External news, images, repositories, and downloads remain subject to their original providers' terms. CYBER BBS application content follows the repository license.
+- **Fonts:** Embedded `Px437_IBM_VGA9` and `Px437_IBM_VGA8` are created by VileR from the *Oldschool PC Font Pack*, licensed under CC BY-SA 4.0. See [`LICENSE-THIRD-PARTY.md`](LICENSE-THIRD-PARTY.md).
+- **APIs:** Public endpoints utilized (Open-Meteo, Frankfurter ECB, AwesomeAPI, USGS Earthquakes, WhereTheISS, Radio Browser, Wikipedia REST) are free, keyless, and subject to their respective terms.
+- **CYBER BBS Core Code:** MIT License. Crafted for enthusiasts of vintage computing and the golden age of telecommunications.

@@ -115,17 +115,22 @@ Use the sound button or the `M` command to mute audio.
 | `4` / `F` | File Areas and Search |
 | `5` / `P` | Photo Grabber and ANSI conversion |
 | `6` / `G` | GitHub Vault |
-| `7` / `D` | Door Games |
+| `7` / `D` | Door Games (7 Games) |
 | `8` / `A` | ANSI Gallery and Editor |
 | `9` / `H` | World Clocks |
-| `10` / `W` | Weather Telemetry |
+| `10` / `W` | Weather Station 2.0 (Hourly, 5-Day & Moon Phases) |
 | `11` / `C` | Live SysOp Chat |
 | `12` / `O` | One-Liners Wall |
-| `13` / `T` | Today Hub |
-| `14` | Multi-Node Hopper |
+| `13` / `T` | Today Hub Briefing |
+| `14` / `M` | Multi-Node Hopper |
 | `15` / `J` | Weekly BBS Newspaper |
 | `16` / `U` | User Statistics and Last Callers |
 | `17` / `S` | Settings and Atmosphere |
+| `18` | Market Wire & Forex (Currencies, Crypto & Ticker) |
+| `19` | Earth & Sky Telemetry (ISS Radar & USGS Quakes) |
+| `20` | Cyber Radio & Real-Time ASCII VU Meter |
+| `21` | Wiki Terminal & Gutenberg Classic Literature |
+| `22` | Carrier Telemetry & Net Diagnostics |
 | `0` / `X` / `Q` | Logoff and Disconnect |
 
 ## Terminal commands and controls
@@ -136,10 +141,21 @@ Type commands at the terminal prompt:
 HELP       Full command reference
 TODAY      Current daily briefing
 NEWS       RSS headlines
-WEATHER    Current weather
+WEATHER    Current weather station 2.0
 FILES      Search file areas
 MAIL       Open Netmail
 GITHUB     Open GitHub Vault
+MARKET     Market Wire & live forex
+EARTH      Earth & Sky satellite radar
+RADIO      Cyber Radio with live ASCII VU meter
+WIKI       Wikipedia terminal search
+BOOKS      Project Gutenberg classic literature
+DIAG       Carrier & line noise diagnostics
+PHONE      Dial-up phone book directory
+MODE       Cycle or select video hardware adapter
+DEGAUSS    Fire CRT degaussing coil
+GRAB       Export screen as .ANS (SAUCE00) and .PNG
+SELFTEST   Execute automated 12-point diagnostic suite
 NODES      Multi-node status
 NEWSPAPER  Weekly BBS newspaper
 STATS      User statistics
@@ -152,26 +168,32 @@ LOGOFF     Disconnect
 | Control | Action |
 |---|---|
 | `Enter` / `Space` | Activate the selected item |
-| Arrow keys / `Tab` | Move through terminal regions |
-| `Esc` | Cancel or go back |
+| Arrow keys / `Tab` | Move through terminal regions / Autocomplete commands |
+| `ArrowUp` / `ArrowDown` | Cycle command history (last 25 commands) |
+| `;` delimiter | Chain commands (e.g. `18;C` or `NEWS;FORUM`) |
+| `PgUp` / `PgDn` | Scroll through 500-line scrollback buffer |
+| `Esc` | Cancel, exit scrollback, or go back |
+| `Alt+V` | Open Video Hardware Mode selector (10 profiles) |
+| `Alt+G` | Screen Grab (.ANS with SAUCE00 + .PNG) |
+| `Alt+D` | Open BBS Phone Book |
 | `F11` / `Alt+Enter` | Toggle fullscreen |
 | `Ctrl+L` | Redraw the current screen |
 | `Alt+N` | Hop to the next fictional node |
 | Mouse click | Activate highlighted rows |
-| Mouse wheel | Page through supported views |
+| Mouse wheel | Scroll terminal scrollback or page through views |
 
 ## Screenshots
 
 <div align="center">
-  <img src="docs/screenshots/01_dial_screen.png" alt="CYBER BBS dial screen" width="32%">
-  <img src="docs/screenshots/02_modem_handshake.png" alt="CYBER BBS modem handshake" width="32%">
-  <img src="docs/screenshots/03_login_screen.png" alt="CYBER BBS login screen" width="32%">
-  <img src="docs/screenshots/04_bulletins.png" alt="CYBER BBS system bulletins" width="32%">
-  <img src="docs/screenshots/06_world_clocks.png" alt="CYBER BBS world clocks" width="32%">
-  <img src="docs/screenshots/07_netmail.png" alt="CYBER BBS Netmail" width="32%">
-  <img src="docs/screenshots/08_forum_board.png" alt="CYBER BBS forum board" width="32%">
-  <img src="docs/screenshots/09_ansi_gallery.png" alt="CYBER BBS ANSI gallery" width="32%">
+  <img src="docs/screenshots/05_main_menu.png" alt="CYBER BBS main menu" width="32%">
   <img src="docs/screenshots/10_today_hub.png" alt="CYBER BBS Today Hub" width="32%">
+  <img src="docs/screenshots/11_market_wire.png" alt="Market Wire quotes and sparklines" width="32%">
+  <img src="docs/screenshots/12_earth_and_sky.png" alt="Earth and Sky ASCII radar" width="32%">
+  <img src="docs/screenshots/13_cyber_radio.png" alt="Cyber Radio with ASCII VU meter" width="32%">
+  <img src="docs/screenshots/14_net_diagnostics.png" alt="Carrier telemetry and net diagnostics" width="32%">
+  <img src="docs/screenshots/15_phone_book.png" alt="BBS Phone Book" width="32%">
+  <img src="docs/screenshots/16_selftest.png" alt="Automated SELFTEST diagnostic suite" width="32%">
+  <img src="docs/screenshots/09_ansi_gallery.png" alt="CYBER BBS ANSI gallery" width="32%">
 </div>
 
 Regenerate screenshots from the public entry point:

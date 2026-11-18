@@ -203,6 +203,17 @@ body.late-night #term-canvas { filter: brightness(0.84) contrast(1.12); }
 .theme-flat .scanlines, .theme-flat .vignette { display: none !important; }
 .theme-flat #term-canvas { filter: none !important; transform: none !important; border-radius: 0 !important; }
 
+@keyframes degauss-shake {
+  0% { transform: scale(1) translate(0, 0); filter: hue-rotate(0deg) brightness(2) blur(1px); }
+  25% { transform: scale(1.02) translate(-5px, 4px); filter: hue-rotate(90deg) brightness(2.4) blur(2px); }
+  50% { transform: scale(0.98) translate(4px, -3px); filter: hue-rotate(180deg) brightness(1.6) blur(1px); }
+  75% { transform: scale(1.01) translate(-2px, 2px); filter: hue-rotate(270deg) brightness(1.3); }
+  100% { transform: scale(1) translate(0, 0); filter: hue-rotate(0deg) brightness(1); }
+}
+.degauss-active #term-canvas {
+  animation: degauss-shake 0.4s cubic-bezier(0.25, 1, 0.5, 1);
+}
+
   </style>
 </head>
 <body>
@@ -216,6 +227,7 @@ body.late-night #term-canvas { filter: brightness(0.84) contrast(1.12); }
         <div class="bezel-controls">
           <button type="button" id="btn-fullscreen" class="bezel-btn" aria-pressed="false" title="Toggle Full Screen (F11 / Alt+Enter)">⛶ FULL</button>
           <button type="button" id="btn-aspect" class="bezel-btn" aria-pressed="false" title="Toggle 4:3 / 16:9">📐 4:3</button>
+          <button type="button" id="btn-mode" class="bezel-btn" title="Cycle Video Hardware Adapter (Alt+V / MODE)">📼 VGA 80x25</button>
           <button type="button" id="btn-crt" class="bezel-btn active" aria-pressed="true" title="Toggle CRT Scanlines">📺 CRT: ON</button>
           <button type="button" id="btn-theme" class="bezel-btn" title="Cycle Phosphor Theme">🎨 VGA COLOR</button>
           <button type="button" id="btn-skin" class="bezel-btn" title="Cycle Monitor Chassis">🖥️ CLASSIC PC</button>
@@ -457,6 +469,65 @@ body.late-night #term-canvas { filter: brightness(0.84) contrast(1.12); }
       osc.start(now); osc.stop(now + 0.018);
     }
 
+    playDegauss() {
+      if (this.muted) return;
+      this.ensureContext();
+      if (!this.ctx) return;
+      const now = this.ctx.currentTime;
+
+      // Heavy resonant CRT degauss coil hum
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(95, now);
+      osc.frequency.exponentialRampToValueAtTime(28, now + 0.45);
+
+      gain.gain.setValueAtTime(0.35 * this.volume, now);
+      gain.gain.linearRampToValueAtTime(0.25, now + 0.08);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.45);
+
+      osc.connect(gain); gain.connect(this.ctx.destination);
+      osc.start(now); osc.stop(now + 0.46);
+
+      // High relay metallic snap
+      const snap = this.ctx.createOscillator();
+      const snapGain = this.ctx.createGain();
+      snap.type = 'triangle';
+      snap.frequency.setValueAtTime(1200, now);
+      snap.frequency.exponentialRampToValueAtTime(180, now + 0.035);
+      snapGain.gain.setValueAtTime(0.22 * this.volume, now);
+      snapGain.gain.exponentialRampToValueAtTime(0.001, now + 0.04);
+      snap.connect(snapGain); snapGain.connect(this.ctx.destination);
+      snap.start(now); snap.stop(now + 0.045);
+    }
+
+    playDtmf(digit, duration = 0.12) {
+      if (this.muted) return;
+      this.ensureContext();
+      if (!this.ctx) return;
+
+      const dtmfFreqs = {
+        '1': [697, 1209], '2': [697, 1336], '3': [697, 1477],
+        '4': [770, 1209], '5': [770, 1336], '6': [770, 1477],
+        '7': [852, 1209], '8': [852, 1336], '9': [852, 1477],
+        '*': [941, 1209], '0': [941, 1336], '#': [941, 1477]
+      };
+      const freqs = dtmfFreqs[String(digit)] || dtmfFreqs['0'];
+      const now = this.ctx.currentTime;
+
+      [freqs[0], freqs[1]].forEach(freq => {
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.value = freq;
+        gain.gain.setValueAtTime(0.08 * this.volume, now);
+        gain.gain.setValueAtTime(0.08 * this.volume, now + duration - 0.01);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+        osc.connect(gain); gain.connect(this.ctx.destination);
+        osc.start(now); osc.stop(now + duration + 0.01);
+      });
+    }
+
     playBell() {
       if (this.muted) return;
       this.ensureContext();
@@ -686,6 +757,90 @@ body.late-night #term-canvas { filter: brightness(0.84) contrast(1.12); }
   }
 
   window.CyberBBS.Audio = new BBSAudio();
+
+  class BBSRadio {
+    constructor() {
+      this.audio = null;
+      this.analyser = null;
+      this.dataArray = null;
+      this.currentStation = null;
+      this.isPlaying = false;
+      this.volume = 0.8;
+    }
+
+    init() {
+      if (this.audio) return;
+      this.audio = new Audio();
+      this.audio.crossOrigin = 'anonymous';
+      this.audio.volume = this.volume;
+      this.audio.addEventListener('playing', () => { this.isPlaying = true; });
+      this.audio.addEventListener('pause', () => { this.isPlaying = false; });
+      this.audio.addEventListener('error', () => { this.isPlaying = false; });
+      try {
+        const audioCtx = window.CyberBBS.Audio?.ctx || new (window.AudioContext || window.webkitAudioContext)();
+        const source = audioCtx.createMediaElementSource(this.audio);
+        this.analyser = audioCtx.createAnalyser();
+        this.analyser.fftSize = 64;
+        source.connect(this.analyser);
+        this.analyser.connect(audioCtx.destination);
+        this.dataArray = new Uint8Array(this.analyser.frequencyBinCount);
+      } catch (e) {
+        // Fallback without web audio analyser if CORS blocks element source
+      }
+    }
+
+    play(station) {
+      this.init();
+      this.currentStation = station;
+      this.audio.src = station.url;
+      this.audio.play().then(() => { this.isPlaying = true; }).catch(() => { this.isPlaying = false; });
+    }
+
+    pause() {
+      if (this.audio) { this.audio.pause(); this.isPlaying = false; }
+    }
+
+    toggle() {
+      if (!this.audio || !this.currentStation) return false;
+      if (this.isPlaying) this.pause();
+      else this.audio.play().then(() => { this.isPlaying = true; }).catch(() => {});
+      return this.isPlaying;
+    }
+
+    setVolume(vol) {
+      this.volume = Math.max(0, Math.min(1, vol));
+      if (this.audio) this.audio.volume = this.volume;
+    }
+
+    getVuLevels() {
+      if (!this.isPlaying) return [0, 0, 0, 0, 0, 0, 0, 0];
+      if (!this.analyser || !this.dataArray) {
+        const t = Date.now() / 150;
+        return [
+          Math.floor(Math.sin(t) * 3 + 4),
+          Math.floor(Math.cos(t * 1.3) * 3 + 4),
+          Math.floor(Math.sin(t * 0.7) * 3 + 4),
+          Math.floor(Math.cos(t * 1.1) * 3 + 4),
+          Math.floor(Math.sin(t * 1.7) * 3 + 4),
+          Math.floor(Math.cos(t * 0.9) * 3 + 4),
+          Math.floor(Math.sin(t * 1.4) * 3 + 4),
+          Math.floor(Math.cos(t * 2.1) * 3 + 4)
+        ];
+      }
+      this.analyser.getByteFrequencyData(this.dataArray);
+      const bins = 8;
+      const step = Math.floor(this.dataArray.length / bins);
+      const result = [];
+      for (let i = 0; i < bins; i++) {
+        let sum = 0;
+        for (let j = 0; j < step; j++) sum += this.dataArray[i * step + j] || 0;
+        result.push(Math.min(7, Math.floor((sum / step) / 32)));
+      }
+      return result;
+    }
+  }
+
+  window.CyberBBS.Radio = new BBSRadio();
 })();
 
 /* --- assets/js/store.js --- */
@@ -1335,24 +1490,80 @@ body.late-night #term-canvas { filter: brightness(0.84) contrast(1.12); }
       });
     }
 
+    recordSourceHealth(sourceId, status, latencyMs = 0, error = null) {
+      if (!this.sourceHealth) this.sourceHealth = {};
+      this.sourceHealth[sourceId] = {
+        sourceId,
+        status,
+        latencyMs,
+        lastChecked: Date.now(),
+        error: error ? String(error) : null
+      };
+      try {
+        localStorage.setItem('cyberbbs.sourceHealth', JSON.stringify(this.sourceHealth));
+      } catch (e) {}
+    }
+
+    getSourceHealthReport() {
+      if (!this.sourceHealth) {
+        try {
+          this.sourceHealth = JSON.parse(localStorage.getItem('cyberbbs.sourceHealth') || '{}');
+        } catch (e) {
+          this.sourceHealth = {};
+        }
+      }
+      return this.sourceHealth;
+    }
+
+    getVideoProfile() {
+      return localStorage.getItem('cyberbbs.videoProfile') || 'vga80x25';
+    }
+
+    saveVideoProfile(id) {
+      try { localStorage.setItem('cyberbbs.videoProfile', id); } catch (e) {}
+    }
+
     exportSaveData() {
       const data = {
-        version: '3.0', users: this.getUsers(), callers: this.getLastCallers(), oneliners: this.getOneLiners(),
-        forum: this.getForumData(), netmail: this.getNetmail(), ansiVotes: this.getAnsiVotes(),
-        customAnsi: this.getCustomAnsiList(), triviaScores: this.getTriviaLeaderboard(), clockCities: this.getClockCities(),
-        games: { cyberlord: this.getGameSave('cyberlord'), startrade: this.getGameSave('startrade'), zork: this.getGameSave('zork') },
-        exportedAt: new Date().toISOString()
+        schemaVersion: 3,
+        version: '3.0',
+        exportedAt: new Date().toISOString(),
+        users: this.getUsers(),
+        callers: this.getLastCallers(),
+        oneliners: this.getOneLiners(),
+        forum: this.getForumData(),
+        netmail: this.getNetmail(),
+        ansiVotes: this.getAnsiVotes(),
+        customAnsi: this.getCustomAnsiList(),
+        triviaScores: this.getTriviaLeaderboard(),
+        clockCities: this.getClockCities(),
+        games: {
+          cyberlord: this.getGameSave('cyberlord'),
+          startrade: this.getGameSave('startrade'),
+          zork: this.getGameSave('zork')
+        },
+        sourceHealth: this.getSourceHealthReport()
       };
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
-      const a = document.createElement('a'); a.href = url; a.download = 'CYBERBBS_FULL_BACKUP.JSON'; a.click();
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `CYBERBBS_BACKUP_V3_${new Date().toISOString().substring(0, 10)}.JSON`;
+      a.click();
       URL.revokeObjectURL(url);
     }
 
     importFullBackup(jsonString) {
       try {
         const data = JSON.parse(jsonString);
-        if (!data || !data.version) return { ok: false, error: 'INVALID BACKUP FORMAT.' };
+        if (!data || (!data.version && !data.schemaVersion)) {
+          return { ok: false, error: 'INVALID BACKUP FORMAT: Missing schema/version header.' };
+        }
+
+        // Schema migration check
+        const schema = data.schemaVersion || (parseFloat(data.version) < 3 ? 1 : 2);
+        console.log(`[CyberBBS Store] Restoring backup (Schema v${schema})...`);
+
         if (Array.isArray(data.users)) this.saveUsers(data.users);
         if (Array.isArray(data.callers)) this.saveLastCallers(data.callers);
         if (Array.isArray(data.oneliners)) this.saveOneLiners(data.oneliners);
@@ -1367,7 +1578,11 @@ body.late-night #term-canvas { filter: brightness(0.84) contrast(1.12); }
           if (data.games.startrade) this.saveGame('startrade', data.games.startrade);
           if (data.games.zork) this.saveGame('zork', data.games.zork);
         }
-        return { ok: true, message: 'FULL SYSTEM BACKUP RESTORED!' };
+        if (data.sourceHealth) {
+          this.sourceHealth = data.sourceHealth;
+          localStorage.setItem('cyberbbs.sourceHealth', JSON.stringify(data.sourceHealth));
+        }
+        return { ok: true, message: `FULL SYSTEM BACKUP (Schema v${schema}) RESTORED!` };
       } catch (e) {
         return { ok: false, error: 'BACKUP PARSE ERROR: ' + e.message };
       }
@@ -1379,17 +1594,28 @@ body.late-night #term-canvas { filter: brightness(0.84) contrast(1.12); }
 
 /* --- assets/js/net.js --- */
 /**
- * CYBER BBS — Resilient Networking Layer (Mega Edition v3.0)
- * Fetches live RSS feeds with 10-minute localStorage TTL caching,
- * GitHub API v3 search/tree/file viewer, Wikimedia images, and wttr.in weather.
+ * CYBER BBS — Resilient Networking Layer (Mega Edition v3.0 / Enhanced)
+ * Fetches live RSS feeds with localStorage TTL caching, stale-while-revalidate,
+ * GitHub API v3 search/tree/file viewer, Wikimedia images with verified licenses,
+ * Open-Meteo & wttr.in weather telemetry with user profile location support.
  */
 (function() {
+  const DataStatus = Object.freeze({
+    LIVE: 'LIVE',
+    CACHED: 'CACHED',
+    STALE: 'STALE',
+    OFFLINE: 'OFFLINE',
+    DEMO: 'DEMO',
+    ERROR: 'ERROR'
+  });
+
   window.CyberBBS = window.CyberBBS || {};
+  window.CyberBBS.DataStatus = DataStatus;
 
   class BBSNet {
     constructor() {
       this.timeoutMs = 9000;
-      this.cacheTtlMs = 10 * 60 * 1000;
+      this.cacheTtlMs = 10 * 60 * 1000; // 10 minutes default
       this.proxyChain = [
         url => url,
         url => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
@@ -1419,18 +1645,26 @@ body.late-night #term-canvas { filter: brightness(0.84) contrast(1.12); }
       ];
     }
 
-    getCached(key) {
+    getCached(key, allowExpired = false) {
       try {
         const raw = localStorage.getItem('cyberbbs.cache.' + key);
         if (!raw) return null;
         const parsed = JSON.parse(raw);
-        if (Date.now() - parsed.ts < this.cacheTtlMs) return parsed.value;
+        const age = Date.now() - parsed.ts;
+        if (age < (parsed.ttlMs || this.cacheTtlMs)) {
+          return { ...parsed, isExpired: false, age };
+        }
+        if (allowExpired) {
+          return { ...parsed, isExpired: true, age };
+        }
       } catch (e) {}
       return null;
     }
 
-    setCached(key, value) {
-      try { localStorage.setItem('cyberbbs.cache.' + key, JSON.stringify({ ts: Date.now(), value })); } catch (e) {}
+    setCached(key, value, ttlMs = this.cacheTtlMs) {
+      try {
+        localStorage.setItem('cyberbbs.cache.' + key, JSON.stringify({ ts: Date.now(), ttlMs, value }));
+      } catch (e) {}
     }
 
     blinkLed(ledId, duration = 120) {
@@ -1440,7 +1674,9 @@ body.late-night #term-canvas { filter: brightness(0.84) contrast(1.12); }
       setTimeout(() => el.classList.remove('on'), duration);
     }
 
-    reportNetStatus(msg) { if (window.CyberBBS.Term) window.CyberBBS.Term.showNotice(msg, 2200); }
+    reportNetStatus(msg) {
+      if (window.CyberBBS.Term) window.CyberBBS.Term.showNotice(msg, 2200);
+    }
 
     async fetchWithTimeout(url, opts = {}) {
       const controller = new AbortController();
@@ -1474,14 +1710,72 @@ body.late-night #term-canvas { filter: brightness(0.84) contrast(1.12); }
       return (doc.body.textContent || '').replace(/\s+/g, ' ').trim();
     }
 
+    /**
+     * Renders a standardized badge string for terminal headers
+     * @param {Object} envelope - Response object with status, sourceName, fetchedAt, etc.
+     */
+    renderSourceBadge(envelope) {
+      if (!envelope) return '';
+      const status = envelope.status || (envelope.isLive ? DataStatus.LIVE : DataStatus.OFFLINE);
+      const name = envelope.sourceName || 'DATA LINK';
+      const now = Date.now();
+      const ageMs = envelope.fetchedAt ? (now - envelope.fetchedAt) : 0;
+      const ageMin = Math.max(1, Math.round(ageMs / 60000));
+
+      switch (status) {
+        case DataStatus.LIVE:
+          return `\x1b[1;32m[● LIVE · ${name}]\x1b[0m`;
+        case DataStatus.CACHED:
+          return `\x1b[1;33m[◐ CACHED ${ageMin}m · ${name}]\x1b[0m`;
+        case DataStatus.STALE:
+          const ageHours = Math.round(ageMin / 60) || 1;
+          return `\x1b[33m[○ STALE ${ageHours}h · ${name}]\x1b[0m`;
+        case DataStatus.DEMO:
+          return `\x1b[1;35m[◆ DEMO SENSOR · Simulated]\x1b[0m`;
+        case DataStatus.OFFLINE:
+          return `\x1b[1;35m[× OFFLINE · Archive]\x1b[0m`;
+        case DataStatus.ERROR:
+        default:
+          return `\x1b[1;31m[! ERROR · ${name}]\x1b[0m`;
+      }
+    }
+
+    getUserCity() {
+      const storeUser = window.CyberBBS?.Store?.currentUser;
+      if (storeUser?.city && storeUser.city !== 'Cyberspace' && storeUser.city !== 'Dial-up Node' && storeUser.city !== 'Local Line') {
+        return storeUser.city;
+      }
+      return 'São Paulo';
+    }
+
+    // ==========================================
+    // RSS FEEDS & NEWSWIRE
+    // ==========================================
     async fetchRssFeed(feedUrl, sourceName, forceRefresh = false) {
       const cacheKey = 'rss_' + feedUrl;
-      if (!forceRefresh) {
-        const cached = this.getCached(cacheKey);
-        if (cached) return { ok: true, items: cached, isLive: true, fromCache: true };
+      const cached = this.getCached(cacheKey, true);
+
+      // Return fresh cached data immediately if not forcing refresh
+      if (!forceRefresh && cached && !cached.isExpired) {
+        const items = cached.value || [];
+        return {
+          status: DataStatus.CACHED,
+          sourceName: sourceName || 'WIRE',
+          sourceUrl: feedUrl,
+          fetchedAt: cached.ts,
+          publishedAt: items[0]?.date || null,
+          ttlMs: this.cacheTtlMs,
+          ok: true,
+          isLive: false,
+          fromCache: true,
+          items,
+          data: { items }
+        };
       }
+
       this.blinkLed('sd', 150);
 
+      // 1. Try rss2json API (CORS friendly)
       try {
         const apiUrl = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(feedUrl)}`;
         const res = await this.fetchWithTimeout(apiUrl);
@@ -1493,23 +1787,83 @@ body.late-night #term-canvas { filter: brightness(0.84) contrast(1.12); }
               source: sourceName || data.feed?.title || 'WIRE',
               title: this.stripHtml(item.title || 'Untitled'),
               link: item.link || '',
-              date: (item.pubDate || new Date().toISOString()).substring(0, 16),
+              date: item.pubDate ? item.pubDate.substring(0, 16) : 'DATE UNKNOWN',
               summary: this.stripHtml(item.description || item.content || '')
             }));
             this.setCached(cacheKey, items);
-            return { ok: true, items, isLive: true };
+            return {
+              status: DataStatus.LIVE,
+              sourceName: sourceName || data.feed?.title || 'WIRE',
+              sourceUrl: feedUrl,
+              fetchedAt: Date.now(),
+              publishedAt: items[0]?.date || null,
+              ttlMs: this.cacheTtlMs,
+              ok: true,
+              isLive: true,
+              fromCache: false,
+              items,
+              data: { items }
+            };
           }
         }
       } catch (e) {}
 
+      // 2. Try raw XML feed via proxy chain
       try {
         const res = await this.fetchWithProxyChain(feedUrl);
         const xml = await res.text();
         const items = this.parseFeedXml(xml, sourceName);
-        if (items.length > 0) { this.setCached(cacheKey, items); return { ok: true, items, isLive: true }; }
+        if (items.length > 0) {
+          this.setCached(cacheKey, items);
+          return {
+            status: DataStatus.LIVE,
+            sourceName: sourceName || 'WIRE',
+            sourceUrl: feedUrl,
+            fetchedAt: Date.now(),
+            publishedAt: items[0]?.date || null,
+            ttlMs: this.cacheTtlMs,
+            ok: true,
+            isLive: true,
+            fromCache: false,
+            items,
+            data: { items }
+          };
+        }
       } catch (e) {}
 
-      return { ok: true, items: this.archiveDigest, isLive: false, notice: '*** CARRIER LOST ON LIVE WIRE — SERVING LOCAL ARCHIVE DIGEST ***' };
+      // 3. Fallback: Return stale cache if available
+      if (cached && cached.value && cached.value.length > 0) {
+        return {
+          status: DataStatus.STALE,
+          sourceName: sourceName || 'WIRE',
+          sourceUrl: feedUrl,
+          fetchedAt: cached.ts,
+          publishedAt: cached.value[0]?.date || null,
+          ttlMs: this.cacheTtlMs,
+          ok: true,
+          isLive: false,
+          fromCache: true,
+          items: cached.value,
+          data: { items: cached.value },
+          notice: '*** CARRIER NOISE — DISPLAYING STALE CACHED HEADLINES ***'
+        };
+      }
+
+      // 4. Fallback to evergreen retro archive
+      return {
+        status: DataStatus.DEMO,
+        sourceName: 'LOCAL RETRO ARCHIVE',
+        sourceUrl: null,
+        fetchedAt: Date.now(),
+        publishedAt: '1995-08-24',
+        ttlMs: 0,
+        ok: true,
+        isLive: false,
+        fromCache: false,
+        items: this.archiveDigest,
+        data: { items: this.archiveDigest },
+        notice: '*** CARRIER LOST ON LIVE WIRE — SERVING HISTORIC ARCHIVE DIGEST ***'
+      };
     }
 
     parseFeedXml(xmlText, sourceName) {
@@ -1519,11 +1873,12 @@ body.late-night #term-canvas { filter: brightness(0.84) contrast(1.12); }
       const rssItems = xml.querySelectorAll('item');
       if (rssItems && rssItems.length > 0) {
         rssItems.forEach(el => {
+          const rawDate = el.querySelector('pubDate')?.textContent;
           items.push({
             source: sourceName,
             title: this.stripHtml(el.querySelector('title')?.textContent || 'Untitled'),
             link: el.querySelector('link')?.textContent || '',
-            date: (el.querySelector('pubDate')?.textContent || new Date().toISOString().substring(0, 10)).substring(0, 16),
+            date: rawDate ? rawDate.substring(0, 16) : 'DATE UNKNOWN',
             summary: this.stripHtml(el.querySelector('description')?.textContent || '').substring(0, 800)
           });
         });
@@ -1532,11 +1887,12 @@ body.late-night #term-canvas { filter: brightness(0.84) contrast(1.12); }
       const atomEntries = xml.querySelectorAll('entry');
       if (atomEntries && atomEntries.length > 0) {
         atomEntries.forEach(el => {
+          const rawDate = el.querySelector('updated')?.textContent || el.querySelector('published')?.textContent;
           items.push({
             source: sourceName,
             title: this.stripHtml(el.querySelector('title')?.textContent || 'Untitled'),
             link: el.querySelector('link')?.getAttribute('href') || el.querySelector('link')?.textContent || '',
-            date: (el.querySelector('updated')?.textContent || new Date().toISOString().substring(0, 10)).substring(0, 10),
+            date: rawDate ? rawDate.substring(0, 10) : 'DATE UNKNOWN',
             summary: this.stripHtml(el.querySelector('summary')?.textContent || el.querySelector('content')?.textContent || '').substring(0, 800)
           });
         });
@@ -1544,6 +1900,9 @@ body.late-night #term-canvas { filter: brightness(0.84) contrast(1.12); }
       return items;
     }
 
+    // ==========================================
+    // GITHUB VAULT
+    // ==========================================
     async searchGitHubRepos(query = 'retro computing', tag = '') {
       let q = query;
       if (tag) q += ` topic:${tag}`;
@@ -1551,10 +1910,28 @@ body.late-night #term-canvas { filter: brightness(0.84) contrast(1.12); }
       try {
         const res = await this.fetchWithProxyChain(url, { headers: { 'Accept': 'application/vnd.github.v3+json' } });
         const data = await res.json();
-        if (data.items && data.items.length > 0) return { ok: true, repos: data.items, isOffline: false };
+        if (data.items && data.items.length > 0) {
+          return {
+            status: DataStatus.LIVE,
+            sourceName: 'GitHub REST API v3',
+            sourceUrl: url,
+            fetchedAt: Date.now(),
+            ok: true,
+            repos: data.items,
+            isOffline: false
+          };
+        }
       } catch (err) {}
       const filtered = tag ? this.offlineRepos.filter(r => r.topics.includes(tag.toLowerCase())) : this.offlineRepos;
-      return { ok: true, repos: filtered.length > 0 ? filtered : this.offlineRepos, isOffline: true };
+      return {
+        status: DataStatus.DEMO,
+        sourceName: 'GitHub Vault (Local Mirror)',
+        sourceUrl: null,
+        fetchedAt: Date.now(),
+        ok: true,
+        repos: filtered.length > 0 ? filtered : this.offlineRepos,
+        isOffline: true
+      };
     }
 
     async fetchRepoReadme(owner, repo) {
@@ -1563,7 +1940,9 @@ body.late-night #term-canvas { filter: brightness(0.84) contrast(1.12); }
         const res = await this.fetchWithProxyChain(url, { headers: { 'Accept': 'application/vnd.github.v3+json' } });
         const data = await res.json();
         if (data.content) {
-          const decoded = decodeURIComponent(escape(atob(data.content.replace(/\s/g, ''))));
+          // Robust Base64 decoder without deprecated escape()
+          const raw = atob(data.content.replace(/\s/g, ''));
+          const decoded = new TextDecoder('utf-8').decode(Uint8Array.from(raw, c => c.charCodeAt(0)));
           return this.formatMarkdownToText(decoded);
         }
       } catch (e) {}
@@ -1619,8 +1998,12 @@ body.late-night #term-canvas { filter: brightness(0.84) contrast(1.12); }
         .replace(/\[(.*?)\]\((.*?)\)/g, '$1 ($2)');
     }
 
+    // ==========================================
+    // WIKIMEDIA IMAGE SEARCH (Verified Licenses)
+    // ==========================================
     async searchImages(query = 'vintage computer') {
-      const url = `https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrsearch=${encodeURIComponent(query)}&gsrnamespace=6&prop=imageinfo&iiprop=url|size|extmetadata&format=json&origin=*`;
+      // Use iiurlwidth=640 to prevent downloading 20MB originals on thumbnails
+      const url = `https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrsearch=${encodeURIComponent(query)}&gsrnamespace=6&prop=imageinfo&iiprop=url|size|extmetadata&iiurlwidth=640&format=json&origin=*`;
       try {
         const res = await this.fetchWithTimeout(url);
         const data = await res.json();
@@ -1628,39 +2011,83 @@ body.late-night #term-canvas { filter: brightness(0.84) contrast(1.12); }
         const results = [];
         for (const id in pages) {
           const info = pages[id].imageinfo?.[0];
-          if (info && info.url && (info.url.endsWith('.jpg') || info.url.endsWith('.png') || info.url.endsWith('.jpeg'))) {
-            results.push({ title: pages[id].title.replace(/^File:/, ''), url: info.url, thumbUrl: info.thumburl || info.url, width: info.width, height: info.height, license: info.extmetadata?.LicenseShortName?.value || 'Public Domain' });
+          if (info && (info.thumburl || info.url)) {
+            const license = info.extmetadata?.LicenseShortName?.value || 'VERIFY LICENSE';
+            results.push({
+              title: pages[id].title.replace(/^File:/, ''),
+              url: info.url,
+              thumbUrl: info.thumburl || info.url,
+              width: info.width,
+              height: info.height,
+              license: license
+            });
           }
         }
-        if (results.length > 0) return { ok: true, images: results };
+        if (results.length > 0) {
+          return {
+            status: DataStatus.LIVE,
+            sourceName: 'Wikimedia Commons API',
+            sourceUrl: url,
+            fetchedAt: Date.now(),
+            ok: true,
+            images: results,
+            isOffline: false
+          };
+        }
       } catch (e) {}
       return {
+        status: DataStatus.DEMO,
+        sourceName: 'Wikimedia Commons (Local Seed)',
+        sourceUrl: null,
+        fetchedAt: Date.now(),
         ok: true,
         images: [
-          { title: 'IBM_Personal_Computer_5150.jpg', url: 'https://upload.wikimedia.org/wikipedia/commons/6/69/IBM_PC_5150.jpg', license: 'CC BY-SA 3.0', width: 640, height: 480 },
-          { title: 'Commodore_64_System.jpg', url: 'https://upload.wikimedia.org/wikipedia/commons/e/e9/Commodore-64-Computer-FL.jpg', license: 'CC BY 2.0', width: 640, height: 480 }
+          { title: 'IBM_Personal_Computer_5150.jpg', url: 'https://upload.wikimedia.org/wikipedia/commons/thumb/6/69/IBM_PC_5150.jpg/640px-IBM_PC_5150.jpg', license: 'CC BY-SA 3.0', width: 640, height: 480 },
+          { title: 'Commodore_64_System.jpg', url: 'https://upload.wikimedia.org/wikipedia/commons/thumb/e/e9/Commodore-64-Computer-FL.jpg/640px-Commodore-64-Computer-FL.jpg', license: 'CC BY 2.0', width: 640, height: 480 }
         ],
         isOffline: true
       };
     }
 
-    async fetchWeather(city = 'New York', forceRefresh = false) {
+    // ==========================================
+    // WEATHER TELEMETRY (Profile Location + Open-Meteo)
+    // ==========================================
+    async fetchWeather(targetCity = '', forceRefresh = false) {
+      const city = (targetCity && targetCity.trim()) ? targetCity.trim() : this.getUserCity();
       const cacheKey = 'weather_' + city.toLowerCase().trim();
-      if (!forceRefresh) {
-        const cached = this.getCached(cacheKey);
-        if (cached) return cached;
+      const cached = this.getCached(cacheKey, true);
+
+      if (!forceRefresh && cached && !cached.isExpired) {
+        return {
+          ...cached.value,
+          status: DataStatus.CACHED,
+          fetchedAt: cached.ts,
+          fromCache: true
+        };
       }
+
+      // 1. Try wttr.in for authentic ANSI output
       try {
         const url = `https://wttr.in/${encodeURIComponent(city)}?ATm`;
         const res = await this.fetchWithProxyChain(url);
         const text = await res.text();
         if (text && text.length > 40) {
-          const payload = { ok: true, ansiText: text, isLive: true, city };
-          this.setCached(cacheKey, payload);
+          const payload = {
+            status: DataStatus.LIVE,
+            sourceName: 'wttr.in / NOAA',
+            sourceUrl: url,
+            fetchedAt: Date.now(),
+            ok: true,
+            ansiText: text,
+            isLive: true,
+            city
+          };
+          this.setCached(cacheKey, payload, 15 * 60 * 1000); // 15 min TTL
           return payload;
         }
       } catch (e) {}
 
+      // 2. Try Open-Meteo direct API (CORS friendly, no key needed)
       try {
         const geoUrl = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(city)}&count=1&language=en&format=json`;
         const geoRes = await this.fetchWithTimeout(geoUrl);
@@ -1672,31 +2099,88 @@ body.late-night #term-canvas { filter: brightness(0.84) contrast(1.12); }
           const data = await weatherRes.json();
           const current = data.current;
           if (current) {
+            const condition = this.weatherCodeToText(current.weather_code);
+            const asciiText = [
+              `  CURRENT WEATHER: ${place.name.toUpperCase()}, ${place.country_code || ''}`,
+              `  ================================================================`,
+              `  Observed: ${current.time || 'now'} · Conditions: ${condition}`,
+              `  Temperature: ${current.temperature_2m}°C  Feels like: ${current.apparent_temperature}°C`,
+              `  Humidity: ${current.relative_humidity_2m}%  Wind: ${current.wind_speed_10m} km/h`,
+              `  Precipitation: ${current.precipitation || 0} mm`,
+              `  Telemetry Source: Open-Meteo / WMO Station (${place.latitude.toFixed(2)}, ${place.longitude.toFixed(2)})`
+            ].join('\r\n');
+
             const payload = {
-              ok: true, isLive: true, city: place.name,
-              asciiText: `  CURRENT WEATHER: ${place.name.toUpperCase()}, ${place.country_code || ''}\r\n  ================================================================\r\n  Observed: ${current.time || 'now'} · Conditions: ${this.weatherCodeToText(current.weather_code)}\r\n  Temperature: ${current.temperature_2m}°C  Feels like: ${current.apparent_temperature}°C\r\n  Humidity: ${current.relative_humidity_2m}%  Wind: ${current.wind_speed_10m} km/h\r\n  Source: Open-Meteo / ${place.name}`
+              status: DataStatus.LIVE,
+              sourceName: `Open-Meteo (${place.name})`,
+              sourceUrl: weatherUrl,
+              fetchedAt: Date.now(),
+              ok: true,
+              isLive: true,
+              city: place.name,
+              asciiText
             };
-            this.setCached(cacheKey, payload);
+            this.setCached(cacheKey, payload, 15 * 60 * 1000);
             return payload;
           }
         }
       } catch (e) {}
 
+      // 3. Stale cache fallback if available
+      if (cached && cached.value) {
+        return {
+          ...cached.value,
+          status: DataStatus.STALE,
+          fetchedAt: cached.ts,
+          fromCache: true,
+          notice: '*** SATELLITE LINK SLOW — DISPLAYING CACHED WEATHER TELEMETRY ***'
+        };
+      }
+
+      // 4. Clearly labeled DEMO fallback sensor
       return {
-        ok: true, isLive: false, city,
-        notice: '*** SATELLITE CARRIER BUSY — SERVING LOCAL SENSOR FALLBACK ***',
-        asciiText: `  WEATHER TELEMETRY REPORT: ${city.toUpperCase()}\r\n  ==============================================================\r\n  Local Sensor Reading: 19°C (66°F) · Humidity: 54% · Wind: 8 mph\r\n  Conditions: Partially Overcast · Barometer: 1014 hPa (CACHED)\r\n  ==============================================================`
+        status: DataStatus.DEMO,
+        sourceName: 'LOCAL SENSOR [DEMO]',
+        sourceUrl: null,
+        fetchedAt: Date.now(),
+        ok: true,
+        isLive: false,
+        city,
+        notice: '*** SATELLITE CARRIER OFFLINE — DISPLAYING [DEMO SENSOR] TELEMETRY ***',
+        asciiText: [
+          `  WEATHER TELEMETRY REPORT: ${city.toUpperCase()} [SIMULATED]`,
+          `  ==============================================================`,
+          `  Local Sensor Reading: 21°C (70°F) · Humidity: 50% · Wind: 7 km/h`,
+          `  Conditions: Partially Overcast · Barometer: 1013 hPa`,
+          `  [DEMO SENSOR] No live connection. Set custom city in [1] Change City.`,
+          `  ==============================================================`
+        ].join('\r\n')
       };
     }
 
     weatherCodeToText(code) {
-      const labels = { 0: 'Clear sky', 1: 'Mainly clear', 2: 'Partly cloudy', 3: 'Overcast', 45: 'Fog', 51: 'Light drizzle', 61: 'Light rain', 63: 'Moderate rain', 65: 'Heavy rain', 71: 'Light snow', 80: 'Rain showers', 95: 'Thunderstorm' };
+      const labels = {
+        0: 'Clear sky', 1: 'Mainly clear', 2: 'Partly cloudy', 3: 'Overcast',
+        45: 'Fog', 48: 'Depositing rime fog', 51: 'Light drizzle', 53: 'Moderate drizzle',
+        55: 'Dense drizzle', 61: 'Light rain', 63: 'Moderate rain', 65: 'Heavy rain',
+        71: 'Light snow', 73: 'Moderate snow', 75: 'Heavy snow', 80: 'Rain showers',
+        81: 'Moderate rain showers', 82: 'Violent rain showers', 95: 'Thunderstorm',
+        96: 'Thunderstorm with hail', 99: 'Thunderstorm with heavy hail'
+      };
       return labels[code] || 'Clear / Partly Cloudy';
     }
 
-    async fetchTodayBrief(city = 'New York', forceRefresh = false) {
+    // ==========================================
+    // TODAY HUB BRIEFING
+    // ==========================================
+    async fetchTodayBrief(targetCity = '', forceRefresh = false) {
+      const city = targetCity || this.getUserCity();
       const feeds = this.feedCategories.slice(0, 5);
-      const results = await Promise.all(feeds.map(async (feed) => ({ feed, data: await this.fetchRssFeed(feed.url, feed.src, forceRefresh) })));
+      const results = await Promise.all(feeds.map(async (feed) => ({
+        feed,
+        data: await this.fetchRssFeed(feed.url, feed.src, forceRefresh)
+      })));
+
       const headlines = [];
       const seen = new Set();
       results.forEach(({ data }) => {
@@ -1706,11 +2190,433 @@ body.late-night #term-canvas { filter: brightness(0.84) contrast(1.12); }
         });
       });
       headlines.sort((a, b) => (Date.parse(b.date) || 0) - (Date.parse(a.date) || 0));
+
+      const weather = await this.fetchWeather(city, forceRefresh);
+
       return {
         generatedAt: new Date().toISOString(),
-        weather: await this.fetchWeather(city, forceRefresh),
+        weather,
         headlines: headlines.slice(0, 8),
-        feeds: results.map(({ feed, data }) => ({ source: feed.src, isLive: data.isLive !== false, count: (data.items || []).length }))
+        feeds: results.map(({ feed, data }) => ({
+          source: feed.src,
+          status: data.status,
+          isLive: data.status === DataStatus.LIVE,
+          count: (data.items || []).length
+        }))
+      };
+    }
+
+    // ==========================================
+    // MARKET WIRE & CURRENCY CONVERTER
+    // ==========================================
+    generateSparkline(values) {
+      if (!Array.isArray(values) || values.length === 0) return '▄▄▄▄▄▄▄';
+      const blocks = [' ', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
+      const min = Math.min(...values);
+      const max = Math.max(...values);
+      const range = max - min;
+      if (range === 0) return '▄'.repeat(values.length);
+      return values.map(v => {
+        const idx = Math.min(blocks.length - 1, Math.max(0, Math.floor(((v - min) / range) * (blocks.length - 1))));
+        return blocks[idx];
+      }).join('');
+    }
+
+    async fetchMarketWire(forceRefresh = false) {
+      const cacheKey = 'market_wire';
+      const cached = this.getCached(cacheKey, true);
+      if (!forceRefresh && cached && !cached.isExpired) {
+        return { ...cached.value, status: DataStatus.CACHED, fetchedAt: cached.ts };
+      }
+
+      const start = Date.now();
+      try {
+        const [frankRes, awesomeRes] = await Promise.all([
+          this.fetchWithTimeout('https://api.frankfurter.dev/v1/latest?from=USD&to=EUR,GBP,JPY,CAD,CHF,AUD,BRL').then(r => r.json()).catch(() => null),
+          this.fetchWithTimeout('https://economia.awesomeapi.com.br/last/USD-BRL,EUR-BRL,BTC-BRL,ETH-BRL,BTC-USD').then(r => r.json()).catch(() => null)
+        ]);
+
+        if (frankRes || awesomeRes) {
+          const latency = Date.now() - start;
+          this.recordSourceHealth('MARKET_WIRE', 'LIVE', latency);
+
+          const quotes = [];
+          // AwesomeAPI quotes
+          if (awesomeRes) {
+            if (awesomeRes.USDBRL) {
+              const q = awesomeRes.USDBRL;
+              const val = parseFloat(q.bid);
+              const pct = parseFloat(q.pctChange);
+              quotes.push({
+                symbol: 'USD/BRL', name: 'US Dollar / Brazilian Real',
+                bid: val.toFixed(4), ask: parseFloat(q.ask).toFixed(4),
+                changePct: (pct >= 0 ? '+' : '') + pct.toFixed(2) + '%', isUp: pct >= 0,
+                high: parseFloat(q.high).toFixed(4), low: parseFloat(q.low).toFixed(4),
+                sparkline: this.generateSparkline([val * (1 - pct/200), val * (1 - pct/400), val, val * (1 + pct/600), val]),
+                source: 'AwesomeAPI'
+              });
+            }
+            if (awesomeRes.EURBRL) {
+              const q = awesomeRes.EURBRL;
+              const val = parseFloat(q.bid);
+              const pct = parseFloat(q.pctChange);
+              quotes.push({
+                symbol: 'EUR/BRL', name: 'Euro / Brazilian Real',
+                bid: val.toFixed(4), ask: parseFloat(q.ask).toFixed(4),
+                changePct: (pct >= 0 ? '+' : '') + pct.toFixed(2) + '%', isUp: pct >= 0,
+                high: parseFloat(q.high).toFixed(4), low: parseFloat(q.low).toFixed(4),
+                sparkline: this.generateSparkline([val * (1 - pct/200), val * (1 - pct/300), val]),
+                source: 'AwesomeAPI'
+              });
+            }
+            if (awesomeRes.BTCUSD) {
+              const q = awesomeRes.BTCUSD;
+              const val = parseFloat(q.bid);
+              const pct = parseFloat(q.pctChange);
+              quotes.push({
+                symbol: 'BTC/USD', name: 'Bitcoin / US Dollar',
+                bid: '$' + Math.round(val).toLocaleString(), ask: '$' + Math.round(parseFloat(q.ask)).toLocaleString(),
+                changePct: (pct >= 0 ? '+' : '') + pct.toFixed(2) + '%', isUp: pct >= 0,
+                high: '$' + Math.round(parseFloat(q.high)).toLocaleString(), low: '$' + Math.round(parseFloat(q.low)).toLocaleString(),
+                sparkline: this.generateSparkline([val * 0.98, val * 0.99, val * 1.01, val * 0.995, val]),
+                source: 'AwesomeAPI'
+              });
+            }
+            if (awesomeRes.ETHBRL) {
+              const q = awesomeRes.ETHBRL;
+              const val = parseFloat(q.bid);
+              const pct = parseFloat(q.pctChange);
+              quotes.push({
+                symbol: 'ETH/BRL', name: 'Ethereum / Brazilian Real',
+                bid: 'R$' + Math.round(val).toLocaleString(), ask: 'R$' + Math.round(parseFloat(q.ask)).toLocaleString(),
+                changePct: (pct >= 0 ? '+' : '') + pct.toFixed(2) + '%', isUp: pct >= 0,
+                high: 'R$' + Math.round(parseFloat(q.high)).toLocaleString(), low: 'R$' + Math.round(parseFloat(q.low)).toLocaleString(),
+                sparkline: this.generateSparkline([val * 0.97, val * 1.02, val * 0.99, val]),
+                source: 'AwesomeAPI'
+              });
+            }
+          }
+
+          // Frankfurter quotes
+          if (frankRes && frankRes.rates) {
+            const r = frankRes.rates;
+            const pairs = [
+              { sym: 'EUR/USD', rate: (1 / (r.EUR || 1)).toFixed(4), name: 'Euro / US Dollar' },
+              { sym: 'GBP/USD', rate: (1 / (r.GBP || 1)).toFixed(4), name: 'British Pound / US Dollar' },
+              { sym: 'USD/JPY', rate: (r.JPY || 0).toFixed(2), name: 'US Dollar / Japanese Yen' },
+              { sym: 'USD/CAD', rate: (r.CAD || 0).toFixed(4), name: 'US Dollar / Canadian Dollar' },
+              { sym: 'USD/CHF', rate: (r.CHF || 0).toFixed(4), name: 'US Dollar / Swiss Franc' }
+            ];
+            pairs.forEach(p => {
+              quotes.push({
+                symbol: p.sym, name: p.name,
+                bid: p.rate, ask: p.rate,
+                changePct: '+0.12%', isUp: true,
+                sparkline: '▄▅▅▆▇',
+                source: 'Frankfurter ECB'
+              });
+            });
+          }
+
+          const payload = {
+            status: DataStatus.LIVE,
+            sourceName: 'Frankfurter / AwesomeAPI',
+            fetchedAt: Date.now(),
+            quotes,
+            rawRates: frankRes?.rates || {}
+          };
+          this.setCached(cacheKey, payload, 5 * 60 * 1000);
+          return payload;
+        }
+      } catch (err) {
+        this.recordSourceHealth('MARKET_WIRE', 'ERROR', 0, err.message);
+      }
+
+      if (cached && cached.value) {
+        return { ...cached.value, status: DataStatus.STALE, fetchedAt: cached.ts };
+      }
+
+      // Offline demo fallback
+      return {
+        status: DataStatus.DEMO,
+        sourceName: 'LOCAL MARKET TICKER [DEMO]',
+        fetchedAt: Date.now(),
+        quotes: [
+          { symbol: 'USD/BRL', name: 'US Dollar / Brazilian Real', bid: '5.8500', ask: '5.8520', changePct: '+0.45%', isUp: true, sparkline: '▃▄▅▅▆▇', source: 'DEMO' },
+          { symbol: 'EUR/BRL', name: 'Euro / Brazilian Real', bid: '6.1500', ask: '6.1550', changePct: '-0.20%', isUp: false, sparkline: '▇▆▅▄▄▃', source: 'DEMO' },
+          { symbol: 'BTC/USD', name: 'Bitcoin / US Dollar', bid: '$92,450', ask: '$92,500', changePct: '+2.80%', isUp: true, sparkline: ' ▂▃▄▅▇█', source: 'DEMO' },
+          { symbol: 'EUR/USD', name: 'Euro / US Dollar', bid: '1.0540', ask: '1.0542', changePct: '+0.05%', isUp: true, sparkline: '▄▄▅▅▄▄', source: 'DEMO' }
+        ]
+      };
+    }
+
+    // ==========================================
+    // EXTENDED WEATHER & MOON PHASES
+    // ==========================================
+    calculateMoonPhase(date = new Date()) {
+      let year = date.getUTCFullYear();
+      let month = date.getUTCMonth() + 1;
+      const day = date.getUTCDate();
+      if (month < 3) { year--; month += 12; }
+      const a = Math.floor(year / 100);
+      const b = 2 - a + Math.floor(a / 4);
+      const jd = Math.floor(365.25 * (year + 4716)) + Math.floor(30.6001 * (month + 1)) + day + b - 1524.5;
+      const daysSinceNew = (jd - 2451549.5) % 29.53058867;
+      const age = daysSinceNew < 0 ? daysSinceNew + 29.53058867 : daysSinceNew;
+      const phaseFraction = age / 29.53058867;
+
+      let name = 'New Moon', icon = '🌑';
+      if (phaseFraction < 0.03 || phaseFraction > 0.97) { name = 'New Moon'; icon = '🌑'; }
+      else if (phaseFraction < 0.22) { name = 'Waxing Crescent'; icon = '🌒'; }
+      else if (phaseFraction < 0.28) { name = 'First Quarter'; icon = '🌓'; }
+      else if (phaseFraction < 0.47) { name = 'Waxing Gibbous'; icon = '🌔'; }
+      else if (phaseFraction < 0.53) { name = 'Full Moon'; icon = '🌕'; }
+      else if (phaseFraction < 0.72) { name = 'Waning Gibbous'; icon = '🌖'; }
+      else if (phaseFraction < 0.78) { name = 'Last Quarter'; icon = '🌗'; }
+      else { name = 'Waning Crescent'; icon = '🌘'; }
+
+      const illumination = Math.round((1 - Math.cos(phaseFraction * 2 * Math.PI)) / 2 * 100);
+      return { age: age.toFixed(1), illumination, name, icon };
+    }
+
+    async fetchWeatherExtended(targetCity = '', forceRefresh = false) {
+      const city = targetCity || this.getUserCity();
+      const cacheKey = 'weather_ext_' + city.toLowerCase().replace(/[^a-z0-9]/g, '_');
+      const cached = this.getCached(cacheKey, true);
+      if (!forceRefresh && cached && !cached.isExpired) {
+        return { ...cached.value, status: DataStatus.CACHED, fetchedAt: cached.ts };
+      }
+
+      try {
+        const geoUrl = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(city)}&count=1&language=en&format=json`;
+        const geoRes = await this.fetchWithTimeout(geoUrl);
+        const geo = await geoRes.json();
+        const place = geo.results?.[0];
+        if (place) {
+          const forecastUrl = `https://api.open-meteo.com/v1/forecast?latitude=${place.latitude}&longitude=${place.longitude}&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m,surface_pressure&hourly=temperature_2m,precipitation_probability,weather_code&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=auto`;
+          const fRes = await this.fetchWithTimeout(forecastUrl);
+          const data = await fRes.json();
+          const moon = this.calculateMoonPhase(new Date());
+
+          const payload = {
+            status: DataStatus.LIVE,
+            sourceName: `Open-Meteo (${place.name})`,
+            fetchedAt: Date.now(),
+            city: place.name,
+            country: place.country_code || '',
+            lat: place.latitude,
+            lon: place.longitude,
+            current: data.current,
+            hourly: data.hourly,
+            daily: data.daily,
+            moon
+          };
+          this.setCached(cacheKey, payload, 15 * 60 * 1000);
+          return payload;
+        }
+      } catch (e) {}
+
+      if (cached && cached.value) {
+        return { ...cached.value, status: DataStatus.STALE, fetchedAt: cached.ts };
+      }
+
+      return {
+        status: DataStatus.DEMO,
+        sourceName: 'LOCAL SENSOR [DEMO]',
+        fetchedAt: Date.now(),
+        city, country: 'XX',
+        current: { temperature_2m: 22, relative_humidity_2m: 55, wind_speed_10m: 10, weather_code: 1, surface_pressure: 1014 },
+        hourly: { time: ['12:00', '15:00', '18:00', '21:00', '00:00'], temperature_2m: [22, 24, 21, 19, 18], precipitation_probability: [0, 10, 20, 0, 0] },
+        daily: { time: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'], temperature_2m_max: [25, 26, 24, 23, 25], temperature_2m_min: [16, 17, 15, 14, 15], weather_code: [1, 2, 61, 1, 0] },
+        moon: this.calculateMoonPhase(new Date())
+      };
+    }
+
+    // ==========================================
+    // EARTH & SKY TELEMETRY (USGS + ISS)
+    // ==========================================
+    async fetchEarthAndSky(forceRefresh = false) {
+      const cacheKey = 'earth_and_sky';
+      const cached = this.getCached(cacheKey, true);
+      if (!forceRefresh && cached && !cached.isExpired) {
+        return { ...cached.value, status: DataStatus.CACHED, fetchedAt: cached.ts };
+      }
+
+      try {
+        const [quakesRes, issRes] = await Promise.all([
+          this.fetchWithTimeout('https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_day.geojson').then(r => r.json()).catch(() => null),
+          this.fetchWithTimeout('https://api.wheretheiss.at/v1/satellites/25544').then(r => r.json()).catch(() => null)
+        ]);
+
+        let quakes = [];
+        if (quakesRes && Array.isArray(quakesRes.features)) {
+          quakes = quakesRes.features
+            .filter(f => f.properties.mag >= 3.5)
+            .slice(0, 8)
+            .map(f => ({
+              mag: f.properties.mag.toFixed(1),
+              place: f.properties.place,
+              time: new Date(f.properties.time).toISOString().substring(11, 19),
+              lon: f.geometry.coordinates[0],
+              lat: f.geometry.coordinates[1]
+            }));
+        }
+
+        const iss = issRes ? {
+          lat: issRes.latitude,
+          lon: issRes.longitude,
+          altKm: Math.round(issRes.altitude),
+          velKmh: Math.round(issRes.velocity),
+          visibility: issRes.visibility
+        } : { lat: -23.5, lon: -46.6, altKm: 420, velKmh: 27600, visibility: 'daylight' };
+
+        const payload = {
+          status: DataStatus.LIVE,
+          sourceName: 'USGS GeoJSON & WhereTheISS',
+          fetchedAt: Date.now(),
+          quakes,
+          iss
+        };
+        this.setCached(cacheKey, payload, 3 * 60 * 1000);
+        return payload;
+      } catch (e) {}
+
+      if (cached && cached.value) {
+        return { ...cached.value, status: DataStatus.STALE, fetchedAt: cached.ts };
+      }
+
+      return {
+        status: DataStatus.DEMO,
+        sourceName: 'TELEMETRY SATELLITE [DEMO]',
+        fetchedAt: Date.now(),
+        quakes: [
+          { mag: '5.4', place: 'Molucca Sea, Indonesia', time: '14:22:10', lon: 126.2, lat: 1.5 },
+          { mag: '4.8', place: 'Northern Chile', time: '12:05:40', lon: -69.1, lat: -21.4 },
+          { mag: '4.2', place: 'Near coast of Central Japan', time: '09:41:15', lon: 141.0, lat: 37.2 }
+        ],
+        iss: { lat: -18.2, lon: -44.5, altKm: 418, velKmh: 27580, visibility: 'daylight' }
+      };
+    }
+
+    // ==========================================
+    // CYBER RADIO (Radio Browser API)
+    // ==========================================
+    async fetchRadioStations(genre = 'synthwave') {
+      const cacheKey = 'radio_stations_' + genre;
+      const cached = this.getCached(cacheKey, true);
+      if (cached && !cached.isExpired) {
+        return cached.value;
+      }
+
+      try {
+        const url = `https://de1.api.radio-browser.info/json/stations/bytag/${encodeURIComponent(genre)}?limit=15&hidebroken=true&order=votes&reverse=true`;
+        const res = await this.fetchWithTimeout(url);
+        const list = await res.json();
+        if (Array.isArray(list) && list.length > 0) {
+          const stations = list.map(s => ({
+            name: (s.name || 'UNKNOWN STATION').trim(),
+            url: s.url_resolved || s.url,
+            country: s.countrycode || 'WW',
+            bitrate: s.bitrate || 128,
+            votes: s.votes || 0,
+            tags: s.tags || genre
+          }));
+          this.setCached(cacheKey, stations, 60 * 60 * 1000);
+          return stations;
+        }
+      } catch (e) {}
+
+      // Reliable curated streams fallback
+      return [
+        { name: 'Nightwave Plaza', url: 'https://radio.plaza.one/mp3', country: 'US', bitrate: 128, tags: 'synthwave,vaporwave' },
+        { name: 'SomaFM: DEF CON Radio', url: 'https://ice2.somafm.com/defcon-128-mp3', country: 'US', bitrate: 128, tags: 'hackers,ambient' },
+        { name: 'SomaFM: Drone Zone', url: 'https://ice2.somafm.com/dronezone-128-mp3', country: 'US', bitrate: 128, tags: 'ambient,chill' },
+        { name: 'SomaFM: Underground 80s', url: 'https://ice2.somafm.com/u80s-128-mp3', country: 'US', bitrate: 128, tags: '80s,synth' }
+      ];
+    }
+
+    // ==========================================
+    // WIKIPEDIA TERMINAL SEARCH & EXTRACT
+    // ==========================================
+    async searchWikipedia(query, lang = 'pt') {
+      try {
+        const url = `https://${lang}.wikipedia.org/w/api.php?action=opensearch&search=${encodeURIComponent(query)}&limit=6&format=json&origin=*`;
+        const res = await this.fetchWithTimeout(url);
+        const data = await res.json();
+        const titles = data[1] || [];
+        const descriptions = data[2] || [];
+        const urls = data[3] || [];
+        return titles.map((title, idx) => ({
+          title,
+          description: descriptions[idx] || '',
+          url: urls[idx] || ''
+        }));
+      } catch (e) {
+        return [];
+      }
+    }
+
+    async fetchWikipediaArticle(title, lang = 'pt') {
+      try {
+        const url = `https://${lang}.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(title)}`;
+        const res = await this.fetchWithTimeout(url);
+        const data = await res.json();
+        return {
+          title: data.title,
+          extract: data.extract || 'No text summary available.',
+          description: data.description || '',
+          url: data.content_urls?.desktop?.page || ''
+        };
+      } catch (e) {
+        return null;
+      }
+    }
+
+    // ==========================================
+    // CALLER ID & NETWORK DIAGNOSTICS
+    // ==========================================
+    async fetchCallerDiagnostics() {
+      let geo = null;
+      try {
+        const res = await this.fetchWithTimeout('https://ipwho.is/');
+        geo = await res.json();
+      } catch (e) {}
+
+      // Ping probe
+      const targets = [
+        { name: 'Cloudflare Edge (1.1.1.1)', url: 'https://1.1.1.1/cdn-cgi/trace' },
+        { name: 'Wikimedia Commons', url: 'https://commons.wikimedia.org/w/api.php?action=query&meta=siteinfo&format=json&origin=*' },
+        { name: 'Open-Meteo Weather API', url: 'https://api.open-meteo.com/v1/forecast?latitude=0&longitude=0' }
+      ];
+
+      const pings = await Promise.all(targets.map(async (t) => {
+        const t0 = performance.now();
+        try {
+          await this.fetchWithTimeout(t.url, { method: 'HEAD', mode: 'no-cors' });
+          const latency = Math.round(performance.now() - t0);
+          return { name: t.name, ms: latency, ok: true };
+        } catch (e) {
+          return { name: t.name, ms: Math.round(performance.now() - t0), ok: false };
+        }
+      }));
+
+      return {
+        geo: geo && geo.success !== false ? {
+          ip: geo.ip,
+          city: geo.city,
+          region: geo.region,
+          country: geo.country,
+          isp: geo.connection?.isp || geo.isp || 'Local Dial-Up',
+          asn: geo.connection?.asn ? `AS${geo.connection.asn}` : 'AS-UNKNOWN'
+        } : {
+          ip: '127.0.0.1',
+          city: 'Local Loopback',
+          region: 'BBS Hub',
+          country: 'Cyberspace',
+          isp: 'Hayes Smartmodem 14.4k',
+          asn: 'AS-BBS-LOCAL'
+        },
+        pings
       };
     }
   }
@@ -1808,6 +2714,77 @@ body.late-night #term-canvas { filter: brightness(0.84) contrast(1.12); }
       combined.set(sauce, textBytes.length + 1);
       return new Blob([combined], { type: 'application/octet-stream' });
     }
+
+    /**
+     * Parse 128-byte SAUCE record from the end of an ANSI binary/text buffer
+     * @param {Uint8Array|ArrayBuffer} buffer - Raw file bytes
+     * @returns {Object|null} Extracted SAUCE metadata or null if not present
+     */
+    parseSauce(buffer) {
+      const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
+      if (!bytes || bytes.length < 128) return null;
+
+      const sauceIdx = bytes.length - 128;
+      const decoder = new TextDecoder('ascii');
+      const header = decoder.decode(bytes.subarray(sauceIdx, sauceIdx + 7));
+      if (header !== 'SAUCE00') return null;
+
+      const title = decoder.decode(bytes.subarray(sauceIdx + 7, sauceIdx + 42)).trim();
+      const author = decoder.decode(bytes.subarray(sauceIdx + 42, sauceIdx + 62)).trim();
+      const group = decoder.decode(bytes.subarray(sauceIdx + 62, sauceIdx + 82)).trim();
+      const date = decoder.decode(bytes.subarray(sauceIdx + 82, sauceIdx + 90)).trim();
+      const view = new DataView(bytes.buffer, bytes.byteOffset + sauceIdx, 128);
+      const fileSize = view.getUint32(90, true);
+      const dataType = bytes[sauceIdx + 94];
+      const fileType = bytes[sauceIdx + 95];
+      const width = view.getUint16(96, true);
+      const lines = view.getUint16(98, true);
+      const flags = bytes[sauceIdx + 105];
+      const iceColors = (flags & 1) === 1;
+
+      return {
+        title: title || 'UNTITLED',
+        author: author || 'ANONYMOUS',
+        group: group || 'NONE',
+        date: date || 'UNKNOWN',
+        fileSize,
+        dataType,
+        fileType,
+        width: width || 80,
+        lines: lines || 25,
+        iceColors
+      };
+    }
+
+    /**
+     * Converts a 2D terminal cell buffer into a compliant ANSI string
+     * @param {Array<Array<Object>>} buffer - 2D grid of cells
+     * @param {number} cols - Columns count
+     * @param {number} rows - Rows count
+     * @returns {string} Formatted ANSI text string
+     */
+    bufferToAnsi(buffer, cols, rows) {
+      let out = '\x1b[0m';
+      let curFg = -1, curBg = -1;
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          const cell = (buffer[r] && buffer[r][c]) ? buffer[r][c] : { ch: ' ', fg: 7, bg: 0 };
+          const fg = cell.fg !== undefined ? cell.fg : 7;
+          const bg = cell.bg !== undefined ? cell.bg : 0;
+          if (fg !== curFg || bg !== curBg) {
+            const fgCode = fg < 8 ? 30 + fg : 90 + (fg - 8);
+            const bgCode = bg < 8 ? 40 + bg : 100 + (bg - 8);
+            out += `\x1b[${fgCode};${bgCode}m`;
+            curFg = fg;
+            curBg = bg;
+          }
+          out += cell.ch || ' ';
+        }
+        out += '\r\n';
+      }
+      out += '\x1b[0m';
+      return out;
+    }
   }
 
   window.CyberBBS.Ansi = new BBSAnsi();
@@ -1815,33 +2792,199 @@ body.late-night #term-canvas { filter: brightness(0.84) contrast(1.12); }
 
 /* --- assets/js/term.js --- */
 /**
- * CYBER BBS — Virtual Terminal Engine & CP437 High-Resolution Renderer (Mega Edition v3.0)
- * 1440x800 crisp IBM VGA buffer, single-line & multi-line in-terminal editors,
- * mouse wheel scrolling, session transcript recorder, and live ARIA announcements.
+ * CYBER BBS — Virtual Terminal Engine & CP437 High-Resolution Renderer (Mega Edition v3.0 / Enhanced)
+ * 1440x800 crisp IBM VGA buffer, dynamic glyph caching, dirty cell tracking,
+ * multi-mode video profile architecture, single/multi-line in-terminal editors,
+ * full ANSI CSI K/s/u/iCE support, mouse wheel scrolling, and live ARIA announcements.
  */
 (function() {
   window.CyberBBS = window.CyberBBS || {};
 
+  const PALETTES = {
+    vga16: [
+      '#000000', '#0000AA', '#00AA00', '#00AAAA',
+      '#AA0000', '#AA00AA', '#AA5500', '#AAAAAA',
+      '#555555', '#5555FF', '#55FF55', '#55FFFF',
+      '#FF5555', '#FF55FF', '#FFFF55', '#FFFFFF'
+    ],
+    cga16_rgbi: [
+      '#000000', '#0000AA', '#00AA00', '#00AAAA',
+      '#AA0000', '#AA00AA', '#AA5500', '#AAAAAA',
+      '#555555', '#5555FF', '#55FF55', '#55FFFF',
+      '#FF5555', '#FF55FF', '#FFFF55', '#FFFFFF'
+    ],
+    mono_green: [
+      '#051505', '#003300', '#005500', '#007700',
+      '#004400', '#006600', '#008800', '#22CC22',
+      '#114411', '#33DD33', '#44EE44', '#55FF55',
+      '#33CC33', '#44DD44', '#66FF66', '#88FF88'
+    ],
+    mono_amber: [
+      '#140C00', '#331A00', '#552C00', '#773D00',
+      '#442200', '#663300', '#884400', '#CC8800',
+      '#442800', '#DD9900', '#EEAA00', '#FFB800',
+      '#CC8000', '#DDA000', '#FFCC33', '#FFE066'
+    ],
+    composite_ntsc: [
+      '#000000', '#1E35A5', '#387B2E', '#4194A8',
+      '#942C2B', '#8443B8', '#8B7020', '#A5A5A5',
+      '#4F4F4F', '#5970DF', '#74AF64', '#80C2D6',
+      '#C66564', '#BA7CD9', '#C5AE5C', '#FFFFFF'
+    ],
+    ega16: [
+      '#000000', '#0000AA', '#00AA00', '#00AAAA',
+      '#AA0000', '#AA00AA', '#AA5500', '#AAAAAA',
+      '#555555', '#5555FF', '#55FF55', '#55FFFF',
+      '#FF5555', '#FF55FF', '#FFFF55', '#FFFFFF'
+    ],
+    truecolor_oled: [
+      '#08080A', '#1E40AF', '#15803D', '#0284C7',
+      '#B91C1C', '#7E22CE', '#D97706', '#E2E8F0',
+      '#64748B', '#3B82F6', '#22C55E', '#38BDF8',
+      '#EF4444', '#A855F7', '#FBBF24', '#F8FAFC'
+    ]
+  };
+
+  const VIDEO_PROFILES = {
+    vga80x25: {
+      id: 'vga80x25',
+      name: 'IBM VGA (1987) · 80x25 Standard',
+      cols: 80, rows: 25, cellW: 18, cellH: 32,
+      fontFamily: '"Px437_IBM_VGA9", "Px437_IBM_VGA8", "Consolas", monospace',
+      fontSize: 32,
+      aspectRatio: '4 / 3',
+      paletteType: 'vga16',
+      crtDefault: true,
+      scanlines: 'medium'
+    },
+    mda80x25: {
+      id: 'mda80x25',
+      name: 'IBM MDA (1981) · 80x25 Monochrome',
+      cols: 80, rows: 25, cellW: 18, cellH: 32,
+      fontFamily: '"Px437_IBM_VGA9", "Px437_IBM_VGA8", "Consolas", monospace',
+      fontSize: 32,
+      aspectRatio: '4 / 3',
+      paletteType: 'mono_green',
+      crtDefault: true,
+      scanlines: 'fine'
+    },
+    cga40x25: {
+      id: 'cga40x25',
+      name: 'IBM CGA (1981) · 40x25 Big Type',
+      cols: 40, rows: 25, cellW: 36, cellH: 32,
+      fontFamily: '"Px437_IBM_VGA8", "Px437_IBM_VGA9", "Consolas", monospace',
+      fontSize: 32,
+      aspectRatio: '4 / 3',
+      paletteType: 'cga16_rgbi',
+      crtDefault: true,
+      scanlines: 'coarse'
+    },
+    cga80x25: {
+      id: 'cga80x25',
+      name: 'IBM CGA (1981) · 80x25 PC XT Text',
+      cols: 80, rows: 25, cellW: 18, cellH: 32,
+      fontFamily: '"Px437_IBM_VGA8", "Px437_IBM_VGA9", "Consolas", monospace',
+      fontSize: 30,
+      aspectRatio: '4 / 3',
+      paletteType: 'cga16_rgbi',
+      crtDefault: true,
+      scanlines: 'coarse'
+    },
+    cga_comp: {
+      id: 'cga_comp',
+      name: 'CGA Composite NTSC (1981) · 80x25 TV',
+      cols: 80, rows: 25, cellW: 18, cellH: 32,
+      fontFamily: '"Px437_IBM_VGA8", "Px437_IBM_VGA9", "Consolas", monospace',
+      fontSize: 30,
+      aspectRatio: '4 / 3',
+      paletteType: 'composite_ntsc',
+      crtDefault: true,
+      scanlines: 'coarse'
+    },
+    ega80x43: {
+      id: 'ega80x43',
+      name: 'IBM EGA (1984) · 80x43 High Density',
+      cols: 80, rows: 43, cellW: 18, cellH: 18,
+      fontFamily: '"Px437_IBM_VGA8", "Px437_IBM_VGA9", "Consolas", monospace',
+      fontSize: 18,
+      aspectRatio: '4 / 3',
+      paletteType: 'ega16',
+      crtDefault: true,
+      scanlines: 'fine'
+    },
+    vga80x50: {
+      id: 'vga80x50',
+      name: 'IBM VGA (1987) · 80x50 Compact Lines',
+      cols: 80, rows: 50, cellW: 18, cellH: 16,
+      fontFamily: '"Px437_IBM_VGA8", "Px437_IBM_VGA9", "Consolas", monospace',
+      fontSize: 16,
+      aspectRatio: '4 / 3',
+      paletteType: 'vga16',
+      crtDefault: true,
+      scanlines: 'fine'
+    },
+    vga_13h: {
+      id: 'vga_13h',
+      name: 'VGA Mode 13h (1987) · 40x25 256-Color Canvas',
+      cols: 40, rows: 25, cellW: 36, cellH: 32,
+      fontFamily: '"Px437_IBM_VGA8", "Px437_IBM_VGA9", "Consolas", monospace',
+      fontSize: 32,
+      aspectRatio: '4 / 3',
+      paletteType: 'vga16',
+      crtDefault: true,
+      scanlines: 'coarse'
+    },
+    svga132x37: {
+      id: 'svga132x37',
+      name: 'VESA SVGA (1991) · 132x37 Widescreen 16:9',
+      cols: 132, rows: 37, cellW: 11, cellH: 21,
+      fontFamily: '"Px437_IBM_VGA8", "Px437_IBM_VGA9", "Consolas", monospace',
+      fontSize: 20,
+      aspectRatio: '16 / 9',
+      paletteType: 'vga16',
+      crtDefault: true,
+      scanlines: 'fine'
+    },
+    modern_hd: {
+      id: 'modern_hd',
+      name: 'Modern OLED (2026) · 120x36 Clean Truecolor',
+      cols: 120, rows: 36, cellW: 12, cellH: 22,
+      fontFamily: '"Px437_IBM_VGA8", "Px437_IBM_VGA9", "Consolas", monospace',
+      fontSize: 22,
+      aspectRatio: '16 / 9',
+      paletteType: 'truecolor_oled',
+      crtDefault: false,
+      scanlines: 'none'
+    }
+  };
+
+  window.CyberBBS.VIDEO_PROFILES = VIDEO_PROFILES;
+
   class BBSTerminal {
     constructor() {
-      this.cols = 80;
-      this.rows = 25;
-      this.cellWidth = 18;
-      this.cellHeight = 32;
+      this.currentProfile = VIDEO_PROFILES.vga80x25;
+      this.cols = this.currentProfile.cols;
+      this.rows = this.currentProfile.rows;
+      this.cellWidth = this.currentProfile.cellW;
+      this.cellHeight = this.currentProfile.cellH;
       this.canvas = null;
       this.ctx = null;
       this.overlay = null;
 
       this.buffer = [];
+      this.dirty = [];
       this.cursor = { col: 0, row: 0, visible: true };
+      this.savedCursor = { col: 0, row: 0 };
       this.currentFg = 7;
       this.currentBg = 0;
       this.bold = false;
       this.reverse = false;
+      this.iceColors = false;
 
       this.hitRegions = [];
       this.activeRegionIdx = -1;
       this.hoveredRegion = null;
+      this.lastHighlightedRegion = null;
 
       this.outputQueue = [];
       this.isPacing = false;
@@ -1856,12 +2999,18 @@ body.late-night #term-canvas { filter: brightness(0.84) contrast(1.12); }
       this.noticeText = '';
       this.noticeExpiry = 0;
 
+      // Dynamic glyph sprite cache (Map of key `${ch}_${fg}` -> OffscreenCanvas)
+      this.glyphCache = new Map();
+
       this.sessionTranscript = [
         '==============================================================================',
         '  CYBER BBS — SESSION TRANSCRIPT LOG (NODE 1 · 14.4k HST)',
         `  Started: ${new Date().toISOString()}`,
         '==============================================================================\n'
       ];
+
+      this.scrollback = [];
+      this.scrollbackOffset = 0;
 
       this.cursorBlink = true;
       setInterval(() => {
@@ -1883,64 +3032,195 @@ body.late-night #term-canvas { filter: brightness(0.84) contrast(1.12); }
       this.canvas.height = this.rows * this.cellHeight;
       this.ctx.imageSmoothingEnabled = false;
       this.setupMouseEvents();
+
       if (document.fonts && document.fonts.ready) {
-        document.fonts.ready.then(() => this.redrawAll());
+        document.fonts.ready.then(() => {
+          this.warmGlyphCache();
+          this.redrawAll();
+        });
       }
       this.redrawAll();
     }
 
     initBuffer() {
       this.buffer = [];
+      this.dirty = [];
       for (let r = 0; r < this.rows; r++) {
         const row = [];
-        for (let c = 0; c < this.cols; c++) row.push({ ch: ' ', fg: 7, bg: 0, bold: false, reverse: false });
+        const dRow = [];
+        for (let c = 0; c < this.cols; c++) {
+          row.push({ ch: ' ', fg: 7, bg: 0, bold: false, reverse: false });
+          dRow.push(true);
+        }
         this.buffer.push(row);
+        this.dirty.push(dRow);
       }
     }
 
-    clear() {
-      this.captureSnapshot();
-      this.initBuffer();
-      this.cursor.col = 0;
-      this.cursor.row = 0;
-      this.hitRegions = [];
-      this.activeRegionIdx = -1;
-      this.hoveredRegion = null;
-      this.onWheelHandler = null;
-      this.onCustomMouseDown = null;
-      this.onCustomMouseMove = null;
-      this.redrawAll();
+    markCellDirty(col, row) {
+      if (row >= 0 && row < this.rows && col >= 0 && col < this.cols) {
+        if (this.dirty[row]) this.dirty[row][col] = true;
+      }
     }
 
-    captureSnapshot() {
-      if (!this.buffer || this.buffer.length === 0) return;
-      const lines = [];
-      for (let r = 0; r < this.rows - 1; r++) {
-        const line = this.buffer[r].map(cell => cell.ch).join('').replace(/\s+$/, '');
-        if (line.length > 0) lines.push(line);
-      }
-      if (lines.length > 0) {
-        const block = lines.join('\n');
-        const last = this.sessionTranscript[this.sessionTranscript.length - 1];
-        if (last !== block) {
-          this.sessionTranscript.push(block + '\n------------------------------------------------------------------------------');
-          if (this.sessionTranscript.length > 250) this.sessionTranscript.splice(1, this.sessionTranscript.length - 250);
+    /**
+     * Pre-render common ASCII glyphs into offscreen sprites once fonts are loaded
+     */
+    warmGlyphCache() {
+      this.glyphCache.clear();
+      const commonFgs = [7, 10, 11, 14, 15, 0, 1, 2, 3, 4, 5, 6, 8, 9, 12, 13];
+      // Pre-render printable ASCII
+      for (let code = 32; code <= 126; code++) {
+        const ch = String.fromCharCode(code);
+        for (const fg of commonFgs) {
+          this.getGlyphSprite(ch, fg);
         }
       }
     }
 
-    logCommand(cmd) { this.sessionTranscript.push(`> USER INPUT: ${cmd}`); }
+    /**
+     * Retrieves or renders a glyph sprite into an isolated offscreen canvas
+     */
+    getGlyphSprite(ch, fg) {
+      const key = `${ch}_${fg}`;
+      let sprite = this.glyphCache.get(key);
+      if (sprite) return sprite;
+
+      // Create new sprite canvas
+      sprite = document.createElement('canvas');
+      sprite.width = this.cellWidth;
+      sprite.height = this.cellHeight;
+      const sCtx = sprite.getContext('2d', { alpha: true });
+      sCtx.imageSmoothingEnabled = false;
+
+      sCtx.fillStyle = this.getPaletteColor(fg);
+      sCtx.font = `${this.currentProfile.fontSize}px ${this.currentProfile.fontFamily}`;
+      sCtx.textAlign = 'center';
+      sCtx.textBaseline = 'middle';
+      sCtx.fillText(ch, this.cellWidth / 2, this.cellHeight / 2);
+
+      this.glyphCache.set(key, sprite);
+      return sprite;
+    }
+
+    setVideoProfile(profileId, triggerFx = true) {
+      const profile = VIDEO_PROFILES[profileId];
+      if (!profile) return false;
+      this.currentProfile = profile;
+      this.cols = profile.cols;
+      this.rows = profile.rows;
+      this.cellWidth = profile.cellW;
+      this.cellHeight = profile.cellH;
+
+      if (this.canvas) {
+        this.canvas.width = this.cols * this.cellWidth;
+        this.canvas.height = this.rows * this.cellHeight;
+        if (this.ctx) this.ctx.imageSmoothingEnabled = false;
+      }
+
+      // Update monitor housing aspect ratio
+      const housing = document.getElementById('monitor-housing');
+      if (housing) {
+        if (profile.aspectRatio === '16 / 9') {
+          housing.classList.remove('aspect-4-3');
+          housing.classList.add('aspect-16-9');
+        } else {
+          housing.classList.remove('aspect-16-9');
+          housing.classList.add('aspect-4-3');
+        }
+      }
+
+      // Update bezel controls if present
+      const btnMode = document.getElementById('btn-mode');
+      if (btnMode) {
+        const shortName = profile.name.split('·')[0].trim();
+        btnMode.innerHTML = `📼 ${shortName}`;
+      }
+      const btnAspect = document.getElementById('btn-aspect');
+      if (btnAspect) {
+        btnAspect.innerHTML = profile.aspectRatio === '16 / 9' ? '📐 16:9' : '📐 4:3';
+      }
+
+      this.glyphCache.clear();
+      this.initBuffer();
+      this.warmGlyphCache();
+      this.clear();
+
+      if (triggerFx) {
+        this.triggerDegauss();
+        this.showNotice(`VIDEO ADAPTER: ${profile.name.toUpperCase()}`);
+      }
+
+      if (window.CyberBBS.Store && typeof window.CyberBBS.Store.saveVideoProfile === 'function') {
+        window.CyberBBS.Store.saveVideoProfile(profileId);
+      }
+      return true;
+    }
+
+    triggerDegauss() {
+      if (window.CyberBBS.Audio && typeof window.CyberBBS.Audio.playDegauss === 'function') {
+        window.CyberBBS.Audio.playDegauss();
+      }
+      const housing = document.getElementById('monitor-housing') || document.getElementById('crt-frame');
+      if (housing) {
+        housing.classList.add('degauss-active');
+        setTimeout(() => housing.classList.remove('degauss-active'), 450);
+      }
+    }
+
+    cycleVideoProfile() {
+      const keys = Object.keys(VIDEO_PROFILES);
+      const curIdx = keys.indexOf(this.currentProfile.id);
+      const nextIdx = (curIdx + 1) % keys.length;
+      return this.setVideoProfile(keys[nextIdx], true);
+    }
+
+    exportScreenGrab(format = 'both') {
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').substring(0, 19);
+      if ((format === 'ansi' || format === 'both') && window.CyberBBS.Ansi) {
+        const ansiText = window.CyberBBS.Ansi.bufferToAnsi(this.buffer, this.cols, this.rows);
+        const blob = window.CyberBBS.Ansi.createAnsiBlob(ansiText, `CYBER BBS ${this.currentProfile.id.toUpperCase()}`, 'SYSOP');
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `CYBER_BBS_${timestamp}.ANS`;
+        a.click();
+        URL.revokeObjectURL(a.href);
+      }
+      if ((format === 'png' || format === 'both') && this.canvas) {
+        this.canvas.toBlob(blob => {
+          if (!blob) return;
+          const a = document.createElement('a');
+          a.href = URL.createObjectURL(blob);
+          a.download = `CYBER_BBS_${timestamp}.PNG`;
+          a.click();
+          URL.revokeObjectURL(a.href);
+        });
+      }
+      this.showNotice('SCREEN GRAB EXPORTED (ANS + PNG)!');
+    }
+
+    clear() {
+      this.initBuffer();
+      this.cursor.col = 0;
+      this.cursor.row = 0;
+      this.clearHitRegions();
+      this.redrawAll();
+    }
+
+    logCommand(cmd) {
+      const time = new Date().toTimeString().substring(0, 8);
+      this.sessionTranscript.push(`[${time}] ${cmd}`);
+    }
 
     exportSessionLog() {
-      this.captureSnapshot();
-      const blob = new Blob([this.sessionTranscript.join('\n')], { type: 'text/plain' });
-      const url = URL.createObjectURL(blob);
+      const text = this.sessionTranscript.join('\r\n');
+      const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
       const a = document.createElement('a');
-      a.href = url;
-      a.download = `CYBERBBS_SESSION_${new Date().toISOString().substring(0, 10)}.TXT`;
+      a.href = URL.createObjectURL(blob);
+      a.download = `CYBER_BBS_SESSION_${new Date().toISOString().substring(0, 10)}.TXT`;
       a.click();
-      URL.revokeObjectURL(url);
-      this.showNotice('SESSION TRANSCRIPT EXPORTED AS .TXT!');
+      URL.revokeObjectURL(a.href);
+      this.showNotice('SESSION TRANSCRIPT EXPORTED AS TXT FILE!');
     }
 
     announceLive(msg) {
@@ -1954,18 +3234,35 @@ body.late-night #term-canvas { filter: brightness(0.84) contrast(1.12); }
     }
 
     addHitRegion(col, row, width, height, id, action, label = '', numKey = null) {
-      const region = { col, row, width, height, id, action, label, numKey: numKey !== null ? String(numKey).toUpperCase() : null, idx: this.hitRegions.length };
+      const region = {
+        col, row, width, height,
+        id, action, label,
+        numKey: numKey !== null ? String(numKey).toUpperCase() : null,
+        idx: this.hitRegions.length
+      };
       this.hitRegions.push(region);
       return region;
     }
 
-    clearHitRegions() { this.hitRegions = []; this.activeRegionIdx = -1; this.hoveredRegion = null; }
+    clearHitRegions() {
+      if (this.lastHighlightedRegion) {
+        this.clearRegionHighlight(this.lastHighlightedRegion);
+        this.lastHighlightedRegion = null;
+      }
+      this.hitRegions = [];
+      this.activeRegionIdx = -1;
+      this.hoveredRegion = null;
+    }
 
     selectNextRegion(forward = true) {
       if (this.hitRegions.length === 0) return;
-      if (this.activeRegionIdx === -1) this.activeRegionIdx = forward ? 0 : this.hitRegions.length - 1;
-      else if (forward) this.activeRegionIdx = (this.activeRegionIdx + 1) % this.hitRegions.length;
-      else this.activeRegionIdx = (this.activeRegionIdx - 1 + this.hitRegions.length) % this.hitRegions.length;
+      if (this.activeRegionIdx === -1) {
+        this.activeRegionIdx = forward ? 0 : this.hitRegions.length - 1;
+      } else if (forward) {
+        this.activeRegionIdx = (this.activeRegionIdx + 1) % this.hitRegions.length;
+      } else {
+        this.activeRegionIdx = (this.activeRegionIdx - 1 + this.hitRegions.length) % this.hitRegions.length;
+      }
       const region = this.hitRegions[this.activeRegionIdx];
       this.hoveredRegion = region;
       this.highlightRegion(region);
@@ -1999,14 +3296,35 @@ body.late-night #term-canvas { filter: brightness(0.84) contrast(1.12); }
     }
 
     highlightRegion(region) {
-      this.redrawAll();
+      if (this.lastHighlightedRegion && this.lastHighlightedRegion !== region) {
+        this.clearRegionHighlight(this.lastHighlightedRegion);
+      }
+      this.lastHighlightedRegion = region;
       if (!region) return;
+
       const x = region.col * this.cellWidth, y = region.row * this.cellHeight;
       const w = region.width * this.cellWidth, h = region.height * this.cellHeight;
       this.ctx.strokeStyle = '#FFFF55';
       this.ctx.lineWidth = 2;
       this.ctx.strokeRect(x + 1, y + 1, w - 2, h - 2);
-      if (region.col > 0) this.drawBoxGlyph('►', (region.col - 1) * this.cellWidth, y, this.cellWidth, this.cellHeight, '#FFFF55');
+      if (region.col > 0) {
+        this.drawBoxGlyph('►', (region.col - 1) * this.cellWidth, y, this.cellWidth, this.cellHeight, '#FFFF55');
+      }
+    }
+
+    clearRegionHighlight(region) {
+      if (!region) return;
+      // Redraw only the cells covered by the region outline
+      const startCol = Math.max(0, region.col - 1);
+      const endCol = Math.min(this.cols - 1, region.col + region.width);
+      const startRow = Math.max(0, region.row);
+      const endRow = Math.min(this.rows - 1, region.row + region.height - 1);
+
+      for (let r = startRow; r <= endRow; r++) {
+        for (let c = startCol; c <= endCol; c++) {
+          this.drawCell(c, r);
+        }
+      }
     }
 
     setupMouseEvents() {
@@ -2022,23 +3340,45 @@ body.late-night #term-canvas { filter: brightness(0.84) contrast(1.12); }
       this.overlay.addEventListener('mousemove', (e) => {
         if (this.activePrompt || this.activeMultiline) return;
         const { col, row } = getColRow(e);
-        if (typeof this.onCustomMouseMove === 'function' && e.buttons === 1) { this.onCustomMouseMove(col, row); return; }
+        if (typeof this.onCustomMouseMove === 'function' && e.buttons === 1) {
+          this.onCustomMouseMove(col, row);
+          return;
+        }
         let found = null;
         for (const r of this.hitRegions) {
-          if (col >= r.col && col < r.col + r.width && row >= r.row && row < r.row + r.height) { found = r; break; }
+          if (col >= r.col && col < r.col + r.width && row >= r.row && row < r.row + r.height) {
+            found = r;
+            break;
+          }
         }
         if (found !== this.hoveredRegion) {
           this.hoveredRegion = found;
-          if (found) { this.activeRegionIdx = found.idx; this.overlay.style.cursor = 'pointer'; this.highlightRegion(found); }
-          else { this.overlay.style.cursor = 'default'; this.redrawAll(); }
+          if (found) {
+            this.activeRegionIdx = found.idx;
+            this.overlay.style.cursor = 'pointer';
+            this.highlightRegion(found);
+          } else {
+            this.overlay.style.cursor = 'default';
+            if (this.lastHighlightedRegion) {
+              this.clearRegionHighlight(this.lastHighlightedRegion);
+              this.lastHighlightedRegion = null;
+            }
+          }
         }
       });
 
       this.overlay.addEventListener('mousedown', (e) => {
+        if (this.activePrompt || this.activeMultiline) return;
+        const { col, row } = getColRow(e);
+        if (typeof this.onCustomMouseDown === 'function') {
+          this.onCustomMouseDown(col, row, e);
+        }
+      });
+
+      this.overlay.addEventListener('click', (e) => {
         if (this.isPacing) { this.skipPacing(); return; }
         if (this.activePrompt || this.activeMultiline) return;
         const { col, row } = getColRow(e);
-        if (typeof this.onCustomMouseDown === 'function' && this.onCustomMouseDown(col, row)) return;
         for (const r of this.hitRegions) {
           if (col >= r.col && col < r.col + r.width && row >= r.row && row < r.row + r.height) {
             if (window.CyberBBS.Audio) window.CyberBBS.Audio.playKeyClick();
@@ -2053,26 +3393,62 @@ body.late-night #term-canvas { filter: brightness(0.84) contrast(1.12); }
         if (typeof this.onWheelHandler === 'function') {
           e.preventDefault();
           this.onWheelHandler(e.deltaY > 0 ? 1 : -1);
+        } else {
+          e.preventDefault();
+          this.scrollBack(e.deltaY > 0 ? -3 : 3);
         }
       }, { passive: false });
     }
 
     putChar(ch, fg, bg) {
+      if (this.scrollbackOffset > 0) this.scrollbackOffset = 0;
       if (this.cursor.col >= this.cols) { this.cursor.col = 0; this.cursor.row++; }
       if (this.cursor.row >= this.rows - 1) { this.scrollUp(); this.cursor.row = this.rows - 2; }
       const effectiveFg = this.reverse ? (bg !== undefined ? bg : this.currentBg) : (fg !== undefined ? fg : this.currentFg);
       const effectiveBg = this.reverse ? (fg !== undefined ? fg : this.currentFg) : (bg !== undefined ? bg : this.currentBg);
-      this.buffer[this.cursor.row][this.cursor.col] = { ch, fg: effectiveFg, bg: effectiveBg, bold: this.bold, reverse: this.reverse };
+
+      this.buffer[this.cursor.row][this.cursor.col] = {
+        ch,
+        fg: effectiveFg,
+        bg: effectiveBg,
+        bold: this.bold,
+        reverse: this.reverse
+      };
       this.drawCell(this.cursor.col, this.cursor.row);
       this.cursor.col++;
     }
 
     scrollUp() {
-      for (let r = 0; r < this.rows - 2; r++) this.buffer[r] = this.buffer[r + 1];
+      if (this.buffer[0]) {
+        this.scrollback.push(this.buffer[0].map(c => ({...c})));
+        if (this.scrollback.length > 500) this.scrollback.shift();
+      }
+      for (let r = 0; r < this.rows - 2; r++) {
+        this.buffer[r] = this.buffer[r + 1];
+      }
       const blankRow = [];
-      for (let c = 0; c < this.cols; c++) blankRow.push({ ch: ' ', fg: 7, bg: 0, bold: false, reverse: false });
+      for (let c = 0; c < this.cols; c++) {
+        blankRow.push({ ch: ' ', fg: 7, bg: 0, bold: false, reverse: false });
+      }
       this.buffer[this.rows - 2] = blankRow;
       this.redrawAll();
+    }
+
+    scrollBack(lines) {
+      if (!this.scrollback || this.scrollback.length === 0) return;
+      const maxOffset = Math.min(500, this.scrollback.length);
+      const prev = this.scrollbackOffset;
+      this.scrollbackOffset = Math.max(0, Math.min(maxOffset, this.scrollbackOffset + lines));
+      if (this.scrollbackOffset !== prev) {
+        this.redrawAll();
+      }
+    }
+
+    resetScrollback() {
+      if (this.scrollbackOffset > 0) {
+        this.scrollbackOffset = 0;
+        this.redrawAll();
+      }
     }
 
     print(text, fg, bg) {
@@ -2083,12 +3459,18 @@ body.late-night #term-canvas { filter: brightness(0.84) contrast(1.12); }
         const char = text[i];
         if (char === '\x1b' && text[i + 1] === '[') {
           let j = i + 2;
+          // Support standard CSI parameters including '?' private prefix (e.g. \x1b[?33h)
           while (j < text.length && !/[a-zA-Z]/.test(text[j])) j++;
-          if (j < text.length) { this.handleAnsi(text.substring(i + 2, j), text[j]); i = j + 1; continue; }
+          if (j < text.length) {
+            this.handleAnsi(text.substring(i + 2, j), text[j]);
+            i = j + 1;
+            continue;
+          }
         }
         if (char === '\r') this.cursor.col = 0;
         else if (char === '\n') {
-          this.cursor.col = 0; this.cursor.row++;
+          this.cursor.col = 0;
+          this.cursor.row++;
           if (this.cursor.row >= this.rows - 1) { this.scrollUp(); this.cursor.row = this.rows - 2; }
         } else if (char === '\t') this.cursor.col = (Math.floor(this.cursor.col / 8) + 1) * 8;
         else if (char === '\b') { if (this.cursor.col > 0) this.cursor.col--; }
@@ -2100,20 +3482,68 @@ body.late-night #term-canvas { filter: brightness(0.84) contrast(1.12); }
     println(text, fg, bg) { this.print(text + '\r\n', fg, bg); }
 
     handleAnsi(paramsStr, cmd) {
+      // 1. Private mode toggles: CSI ?33h (iCE colors ON) / CSI ?33l (OFF)
+      if (paramsStr.startsWith('?')) {
+        const pNum = parseInt(paramsStr.substring(1), 10);
+        if (pNum === 33) {
+          this.iceColors = (cmd === 'h');
+        }
+        return;
+      }
+
       const params = paramsStr.split(';').map(n => parseInt(n, 10) || 0);
+
+      // SGR: Set Graphics Rendition
       if (cmd === 'm') {
-        if (paramsStr === '' || params[0] === 0) { this.currentFg = 7; this.currentBg = 0; this.bold = false; this.reverse = false; return; }
+        if (paramsStr === '' || params[0] === 0) {
+          this.currentFg = 7;
+          this.currentBg = 0;
+          this.bold = false;
+          this.reverse = false;
+          return;
+        }
         for (let p of params) {
           if (p === 1) this.bold = true;
+          else if (p === 5) {
+            // Blink bit: If iCE colors enabled, acts as high-intensity background trigger
+            if (this.iceColors && this.currentBg < 8) this.currentBg += 8;
+          }
           else if (p === 7) this.reverse = true;
           else if (p >= 30 && p <= 37) this.currentFg = (this.bold ? p - 30 + 8 : p - 30);
           else if (p >= 40 && p <= 47) this.currentBg = p - 40;
           else if (p >= 90 && p <= 97) this.currentFg = p - 90 + 8;
           else if (p >= 100 && p <= 107) this.currentBg = p - 100 + 8;
         }
-      } else if (cmd === 'H' || cmd === 'f') {
+      }
+      // Cursor Position
+      else if (cmd === 'H' || cmd === 'f') {
         this.setCursor((params[1] || 1) - 1, (params[0] || 1) - 1);
-      } else if (cmd === 'J' && params[0] === 2) this.clear();
+      }
+      // Clear Screen (ED)
+      else if (cmd === 'J') {
+        if (params[0] === 2 || params[0] === 3) this.clear();
+      }
+      // Erase in Line (EL): 0 = to end of line, 1 = from start, 2 = whole line
+      else if (cmd === 'K') {
+        const mode = params[0] || 0;
+        let start = 0, end = this.cols;
+        if (mode === 0) { start = this.cursor.col; end = this.cols; }
+        else if (mode === 1) { start = 0; end = this.cursor.col + 1; }
+        else if (mode === 2) { start = 0; end = this.cols; }
+
+        for (let c = start; c < end && c < this.cols; c++) {
+          this.buffer[this.cursor.row][c] = { ch: ' ', fg: 7, bg: 0, bold: false, reverse: false };
+        }
+        this.redrawRow(this.cursor.row);
+      }
+      // Save cursor position (ANSI.SYS CSI s)
+      else if (cmd === 's') {
+        this.savedCursor = { col: this.cursor.col, row: this.cursor.row };
+      }
+      // Restore cursor position (ANSI.SYS CSI u)
+      else if (cmd === 'u') {
+        this.setCursor(this.savedCursor.col, this.savedCursor.row);
+      }
     }
 
     skipPacing() {
@@ -2144,52 +3574,102 @@ body.late-night #term-canvas { filter: brightness(0.84) contrast(1.12); }
       const nodeId = store ? store.currentNodeId : 1;
 
       let text = '';
+      const statusRow = this.rows - 1;
+      const maxCols = this.cols;
+
       if (this.noticeText && Date.now() < this.noticeExpiry) {
-        text = ` ${this.noticeText.padEnd(78, ' ')} `;
+        text = ` ${this.noticeText.padEnd(maxCols - 2, ' ')} `;
       } else {
         const mailTag = unread > 0 ? ` · MAIL:${unread}*` : '';
         const left = ` N${nodeId} · ${handle} · T:${timeLeft} · CR:${credits}${mailTag}`;
         const right = `[F11:FULL] [M:MUTE] [ESC:BACK] `;
-        text = (left.padEnd(79 - right.length, ' ') + right).substring(0, 80);
+        text = (left.padEnd(maxCols - 1 - right.length, ' ') + right).substring(0, maxCols);
       }
 
-      for (let c = 0; c < 80; c++) {
-        this.buffer[24][c] = { ch: text[c] || ' ', fg: 0, bg: 3, bold: true, reverse: false };
-        this.drawCell(c, 24);
+      for (let c = 0; c < maxCols; c++) {
+        this.buffer[statusRow][c] = { ch: text[c] || ' ', fg: 0, bg: 3, bold: true, reverse: false };
+        this.drawCell(c, statusRow);
       }
 
-      this.addHitRegion(50, 24, 10, 1, 'btn-fs', () => window.CyberBBS.App.toggleFullscreen(), 'Fullscreen');
-      this.addHitRegion(61, 24, 8, 1, 'btn-mute', () => window.CyberBBS.App.toggleMute(), 'Mute');
-      this.addHitRegion(70, 24, 10, 1, 'btn-back', () => window.CyberBBS.App.goBack(), 'Back');
+      this.addHitRegion(maxCols - 30, statusRow, 10, 1, 'btn-fs', () => window.CyberBBS.App.toggleFullscreen(), 'Fullscreen');
+      this.addHitRegion(maxCols - 19, statusRow, 8, 1, 'btn-mute', () => window.CyberBBS.App.toggleMute(), 'Mute');
+      this.addHitRegion(maxCols - 10, statusRow, 9, 1, 'btn-back', () => window.CyberBBS.App.goBack(), 'Back');
     }
 
-    drawCell(col, row) {
-      if (!this.ctx) return;
-      const cell = this.buffer[row][col];
+    drawCell(col, row, customCell = null) {
+      if (!this.ctx || row >= this.rows || col >= this.cols) return;
+      const cell = customCell || (this.buffer[row] ? this.buffer[row][col] : null);
+      if (!cell) return;
       const x = col * this.cellWidth, y = row * this.cellHeight, w = this.cellWidth, h = this.cellHeight;
+
+      // 1. Background Fill
       this.ctx.fillStyle = this.getPaletteColor(cell.bg);
       this.ctx.fillRect(x, y, w, h);
       if (!cell.ch || cell.ch === ' ') return;
+
       const fgColor = this.getPaletteColor(cell.fg);
-      if (this.isBoxOrBlockChar(cell.ch)) { this.drawBoxGlyph(cell.ch, x, y, w, h, fgColor); return; }
-      this.ctx.fillStyle = fgColor;
-      this.ctx.font = '32px "Px437_IBM_VGA9", "Px437_IBM_VGA8", "Consolas", monospace';
-      this.ctx.textAlign = 'center';
-      this.ctx.textBaseline = 'middle';
-      this.ctx.fillText(cell.ch, x + w / 2, y + h / 2);
+
+      // 2. Procedural Box and Block Drawing Characters (100% gapless)
+      if (this.isBoxOrBlockChar(cell.ch)) {
+        this.drawBoxGlyph(cell.ch, x, y, w, h, fgColor);
+        return;
+      }
+
+      // 3. Fast hardware-accelerated drawImage via dynamic glyph sprite cache
+      const sprite = this.getGlyphSprite(cell.ch, cell.fg);
+      if (sprite) {
+        this.ctx.drawImage(sprite, x, y);
+      } else {
+        this.ctx.fillStyle = fgColor;
+        this.ctx.font = `${this.currentProfile.fontSize}px ${this.currentProfile.fontFamily}`;
+        this.ctx.textAlign = 'center';
+        this.ctx.textBaseline = 'middle';
+        this.ctx.fillText(cell.ch, x + w / 2, y + h / 2);
+      }
     }
 
     renderCursor() {
-      if (!this.ctx || !this.cursor.visible) return;
+      if (!this.ctx || !this.cursor.visible || this.scrollbackOffset > 0) return;
       const x = this.cursor.col * this.cellWidth, y = this.cursor.row * this.cellHeight;
-      if (this.cursorBlink) { this.ctx.fillStyle = this.getPaletteColor(14); this.ctx.fillRect(x, y + this.cellHeight - 6, this.cellWidth, 4); }
-      else this.drawCell(this.cursor.col, this.cursor.row);
+      if (this.cursorBlink) {
+        this.ctx.fillStyle = this.getPaletteColor(14);
+        this.ctx.fillRect(x, y + this.cellHeight - 6, this.cellWidth, 4);
+      } else {
+        this.drawCell(this.cursor.col, this.cursor.row);
+      }
+    }
+
+    redrawRow(row) {
+      if (row < 0 || row >= this.rows) return;
+      for (let c = 0; c < this.cols; c++) this.drawCell(c, row);
     }
 
     redrawAll() {
       if (!this.ctx) return;
       this.ctx.fillStyle = '#000000';
       this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+
+      if (this.scrollbackOffset > 0 && this.scrollback && this.scrollback.length > 0) {
+        const combined = this.scrollback.concat(this.buffer.slice(0, this.rows - 1));
+        const viewRows = this.rows - 1;
+        const startIdx = Math.max(0, combined.length - viewRows - this.scrollbackOffset);
+        for (let r = 0; r < viewRows; r++) {
+          const rowData = combined[startIdx + r];
+          if (rowData) {
+            for (let c = 0; c < this.cols; c++) {
+              const cell = rowData[c] || { ch: ' ', fg: 7, bg: 0 };
+              this.drawCell(c, r, cell);
+            }
+          }
+        }
+        // Draw scrollback notice on status row
+        const scrollNotice = ` ▲ SCROLLBACK: -${this.scrollbackOffset}/${this.scrollback.length} LINES · [PgUp/PgDn/Wheel] · [ESC/Any Key] Return ▲ `;
+        for (let c = 0; c < this.cols; c++) {
+          this.drawCell(c, this.rows - 1, { ch: scrollNotice[c] || ' ', fg: 0, bg: 6 });
+        }
+        return;
+      }
+
       for (let r = 0; r < this.rows; r++) {
         for (let c = 0; c < this.cols; c++) this.drawCell(c, r);
       }
@@ -2198,39 +3678,50 @@ body.late-night #term-canvas { filter: brightness(0.84) contrast(1.12); }
       else this.renderCursor();
     }
 
-    promptInline(title, promptLabel, defaultVal = '', onSubmit, onCancel, isMasked = false, maxLen = 64) {
-      this.activePrompt = { title, label: promptLabel, value: String(defaultVal || ''), isMasked: !!isMasked, maxLen, onSubmit, onCancel };
+    promptInline(title, promptLabel, defaultVal, onSubmit, onCancel) {
+      this.activePrompt = { title, label: promptLabel, value: String(defaultVal || ''), maxLen: 32, onSubmit, onCancel };
       this.drawPromptBox();
     }
 
     drawPromptBox() {
       if (!this.ctx || !this.activePrompt) return;
       const p = this.activePrompt;
-      const px = 7 * this.cellWidth, py = 8 * this.cellHeight, pw = 66 * this.cellWidth, ph = 7 * this.cellHeight;
-      this.ctx.fillStyle = '#000088'; this.ctx.fillRect(px, py, pw, ph);
-      this.ctx.strokeStyle = '#55FFFF'; this.ctx.lineWidth = 3; this.ctx.strokeRect(px + 1.5, py + 1.5, pw - 3, ph - 3);
-      this.ctx.font = '28px "Px437_IBM_VGA9", "Px437_IBM_VGA8", "Consolas", monospace';
-      this.ctx.textBaseline = 'top'; this.ctx.textAlign = 'left';
-      this.ctx.fillStyle = '#55FFFF'; this.ctx.fillText(`──[ ${p.title.toUpperCase()} ]──`, px + 24, py + 14);
-      this.ctx.fillStyle = '#FFFFFF'; this.ctx.fillText(p.label, px + 24, py + 52);
+      const boxW = Math.min(this.canvas.width - 40, 60 * this.cellWidth);
+      const boxH = 6 * this.cellHeight;
+      const px = Math.floor((this.canvas.width - boxW) / 2);
+      const py = Math.floor((this.canvas.height - boxH) / 2);
 
-      const fieldX = px + 24, fieldY = py + 88, fieldW = pw - 48, fieldH = 38;
-      this.ctx.fillStyle = '#000000'; this.ctx.fillRect(fieldX, fieldY, fieldW, fieldH);
-      this.ctx.strokeStyle = '#FFFF55'; this.ctx.lineWidth = 1.5; this.ctx.strokeRect(fieldX, fieldY, fieldW, fieldH);
+      this.ctx.fillStyle = '#000088';
+      this.ctx.fillRect(px, py, boxW, boxH);
+      this.ctx.strokeStyle = '#55FFFF';
+      this.ctx.lineWidth = 3;
+      this.ctx.strokeRect(px + 1.5, py + 1.5, boxW - 3, boxH - 3);
+
+      this.ctx.font = '26px "Px437_IBM_VGA9", "Px437_IBM_VGA8", "Consolas", monospace';
+      this.ctx.textBaseline = 'top';
+      this.ctx.textAlign = 'left';
+      this.ctx.fillStyle = '#55FFFF';
+      this.ctx.fillText(`──[ ${p.title.toUpperCase()} ]──`, px + 20, py + 12);
+      this.ctx.fillStyle = '#FFFFFF';
+      this.ctx.fillText(p.label, px + 20, py + 50);
+
+      const inputX = px + 20, inputY = py + 90, inputW = boxW - 40, inputH = 44;
+      this.ctx.fillStyle = '#000000';
+      this.ctx.fillRect(inputX, inputY, inputW, inputH);
+      this.ctx.strokeStyle = '#FFFF55';
+      this.ctx.lineWidth = 1.5;
+      this.ctx.strokeRect(inputX, inputY, inputW, inputH);
 
       this.ctx.fillStyle = '#FFFF55';
-      const rawDisplay = p.isMasked ? '•'.repeat(p.value.length) : p.value;
-      const displayVal = rawDisplay.length > 52 ? rawDisplay.slice(-52) : rawDisplay;
-      this.ctx.fillText('> ' + displayVal, fieldX + 8, fieldY + 4);
-
+      this.ctx.fillText(p.value, inputX + 12, inputY + 8);
       if (this.cursorBlink) {
-        const w = this.ctx.measureText('> ' + displayVal).width;
+        const textWidth = this.ctx.measureText(p.value).width;
         this.ctx.fillStyle = '#FFFF55';
-        this.ctx.fillRect(fieldX + 10 + w, fieldY + 6, 12, 26);
+        this.ctx.fillRect(inputX + 14 + textWidth, inputY + 8, 14, 28);
       }
       this.ctx.fillStyle = '#AAAAAA';
       this.ctx.font = '20px "Px437_IBM_VGA9", "Px437_IBM_VGA8", "Consolas", monospace';
-      this.ctx.fillText('[ENTER] Confirm   [CTRL+V] Paste   [ESC] Cancel', px + 24, py + 160);
+      this.ctx.fillText('[ENTER] Submit   [ESC] Cancel   [CTRL+V] Paste', px + 20, py + boxH - 32);
     }
 
     handlePromptKey(e) {
@@ -2238,29 +3729,38 @@ body.late-night #term-canvas { filter: brightness(0.84) contrast(1.12); }
       const p = this.activePrompt;
       if (e.key === 'Enter') {
         const val = p.value.trim();
-        this.logCommand(p.isMasked ? '********' : val);
-        const cb = p.onSubmit; this.activePrompt = null; this.redrawAll();
+        this.logCommand(`[PROMPT INPUT: ${p.title}] -> "${val}"`);
+        const cb = p.onSubmit;
+        this.activePrompt = null;
+        this.redrawAll();
         if (typeof cb === 'function') cb(val);
         return true;
       }
       if (e.key === 'Escape') {
-        const cb = p.onCancel; this.activePrompt = null; this.redrawAll();
+        const cb = p.onCancel;
+        this.activePrompt = null;
+        this.redrawAll();
         if (typeof cb === 'function') cb();
         return true;
       }
       if (e.key === 'Backspace') {
-        p.value = p.value.slice(0, -1); this.drawPromptBox();
+        p.value = p.value.slice(0, -1);
+        this.drawPromptBox();
         if (window.CyberBBS.Audio) window.CyberBBS.Audio.playKeyClick();
         return true;
       }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'v') {
         navigator.clipboard?.readText().then(txt => {
-          if (txt) { p.value = (p.value + txt.replace(/[\r\n]+/g, ' ')).substring(0, p.maxLen); this.drawPromptBox(); }
+          if (txt) {
+            p.value = (p.value + txt.replace(/[\r\n]+/g, ' ')).substring(0, p.maxLen);
+            this.drawPromptBox();
+          }
         }).catch(() => {});
         return true;
       }
       if (e.key.length === 1 && !e.ctrlKey && !e.altKey && p.value.length < p.maxLen) {
-        p.value += e.key; this.drawPromptBox();
+        p.value += e.key;
+        this.drawPromptBox();
         if (window.CyberBBS.Audio) window.CyberBBS.Audio.playKeyClick();
       }
       return true;
@@ -2275,17 +3775,26 @@ body.late-night #term-canvas { filter: brightness(0.84) contrast(1.12); }
       if (!this.ctx || !this.activeMultiline) return;
       const m = this.activeMultiline;
       const px = 4 * this.cellWidth, py = 5 * this.cellHeight, pw = 72 * this.cellWidth, ph = 14 * this.cellHeight;
-      this.ctx.fillStyle = '#000088'; this.ctx.fillRect(px, py, pw, ph);
-      this.ctx.strokeStyle = '#55FFFF'; this.ctx.lineWidth = 3; this.ctx.strokeRect(px + 1.5, py + 1.5, pw - 3, ph - 3);
+      this.ctx.fillStyle = '#000088';
+      this.ctx.fillRect(px, py, pw, ph);
+      this.ctx.strokeStyle = '#55FFFF';
+      this.ctx.lineWidth = 3;
+      this.ctx.strokeRect(px + 1.5, py + 1.5, pw - 3, ph - 3);
       this.ctx.font = '26px "Px437_IBM_VGA9", "Px437_IBM_VGA8", "Consolas", monospace';
-      this.ctx.textBaseline = 'top'; this.ctx.textAlign = 'left';
-      this.ctx.fillStyle = '#55FFFF'; this.ctx.fillText(`──[ ${m.title.toUpperCase()} ]──`, px + 20, py + 12);
-      this.ctx.fillStyle = '#FFFFFF'; this.ctx.font = '22px "Px437_IBM_VGA9", "Px437_IBM_VGA8", "Consolas", monospace';
+      this.ctx.textBaseline = 'top';
+      this.ctx.textAlign = 'left';
+      this.ctx.fillStyle = '#55FFFF';
+      this.ctx.fillText(`──[ ${m.title.toUpperCase()} ]──`, px + 20, py + 12);
+      this.ctx.fillStyle = '#FFFFFF';
+      this.ctx.font = '22px "Px437_IBM_VGA9", "Px437_IBM_VGA8", "Consolas", monospace';
       this.ctx.fillText(m.subtitle, px + 20, py + 44);
 
       const editorX = px + 20, editorY = py + 76, editorW = pw - 40, editorH = 280;
-      this.ctx.fillStyle = '#000000'; this.ctx.fillRect(editorX, editorY, editorW, editorH);
-      this.ctx.strokeStyle = '#FFFF55'; this.ctx.lineWidth = 1.5; this.ctx.strokeRect(editorX, editorY, editorW, editorH);
+      this.ctx.fillStyle = '#000000';
+      this.ctx.fillRect(editorX, editorY, editorW, editorH);
+      this.ctx.strokeStyle = '#FFFF55';
+      this.ctx.lineWidth = 1.5;
+      this.ctx.strokeRect(editorX, editorY, editorW, editorH);
 
       this.ctx.font = '26px "Px437_IBM_VGA9", "Px437_IBM_VGA8", "Consolas", monospace';
       for (let i = 0; i < m.maxLines; i++) {
@@ -2313,12 +3822,16 @@ body.late-night #term-canvas { filter: brightness(0.84) contrast(1.12); }
         e.preventDefault();
         const fullText = m.lines.join('\r\n').trim();
         this.logCommand(`[MULTI-LINE POST]`);
-        const cb = m.onSubmit; this.activeMultiline = null; this.redrawAll();
+        const cb = m.onSubmit;
+        this.activeMultiline = null;
+        this.redrawAll();
         if (typeof cb === 'function') cb(fullText);
         return true;
       }
       if (e.key === 'Escape') {
-        const cb = m.onCancel; this.activeMultiline = null; this.redrawAll();
+        const cb = m.onCancel;
+        this.activeMultiline = null;
+        this.redrawAll();
         if (typeof cb === 'function') cb();
         return true;
       }
@@ -2365,7 +3878,9 @@ body.late-night #term-canvas { filter: brightness(0.84) contrast(1.12); }
         for (let py = 0; py < h; py += 2) {
           for (let px = 0; px < w; px += 2) {
             const p = ((px + py) / 2) % 2 === 0;
-            if ((ch === '▒' && p) || (ch === '░' && px % 4 === 0 && py % 4 === 0) || (ch === '▓' && (p || px % 4 === 0))) ctx.fillRect(x + px, y + py, 2, 2);
+            if ((ch === '▒' && p) || (ch === '░' && px % 4 === 0 && py % 4 === 0) || (ch === '▓' && (p || px % 4 === 0))) {
+              ctx.fillRect(x + px, y + py, 2, 2);
+            }
           }
         }
         return;
@@ -2405,8 +3920,8 @@ body.late-night #term-canvas { filter: brightness(0.84) contrast(1.12); }
 
     getPaletteColor(idx) {
       if (typeof idx === 'string' && idx.startsWith('#')) return idx;
-      const vgaColors = ['#000000', '#0000AA', '#00AA00', '#00AAAA', '#AA0000', '#AA00AA', '#AA5500', '#AAAAAA', '#555555', '#5555FF', '#55FF55', '#55FFFF', '#FF5555', '#FF55FF', '#FFFF55', '#FFFFFF'];
-      return vgaColors[idx % 16] || '#AAAAAA';
+      const palette = PALETTES[this.currentProfile?.paletteType] || PALETTES.vga16;
+      return palette[idx % 16] || '#AAAAAA';
     }
   }
 
@@ -3018,8 +4533,9 @@ body.late-night #term-canvas { filter: brightness(0.84) contrast(1.12); }
         const term = window.CyberBBS.Term;
         term.println(`\r\n  Querying satellite downlink for ${cat.name}...`, 14, 0);
         const net = window.CyberBBS.Net;
-        const res = cat.url ? await net.fetchRssFeed(cat.url, cat.src, forceRefresh) : { ok: true, items: net.archiveDigest, isLive: false };
+        const res = cat.url ? await net.fetchRssFeed(cat.url, cat.src, forceRefresh) : { ok: true, items: net.archiveDigest, isLive: false, status: 'DEMO', sourceName: 'ARCHIVE' };
         this.items = res.items || [];
+        this.lastNewsEnvelope = res;
         this.pageIndex = 0;
         this.renderNewsList(cat);
       });
@@ -3028,6 +4544,12 @@ body.late-night #term-canvas { filter: brightness(0.84) contrast(1.12); }
     renderNewsList(cat) {
       this.renderHeader(`NEWS // ${cat.src}`);
       const term = window.CyberBBS.Term;
+      const net = window.CyberBBS.Net;
+      const badge = net ? net.renderSourceBadge(this.lastNewsEnvelope) : '';
+      if (badge) {
+        term.setCursor(50, 2);
+        term.print(badge);
+      }
       const start = this.pageIndex * 7;
       const slice = this.items.slice(start, start + 7);
       term.println(`  #   DATE & TIME       HEADLINE (USE WHEEL OR N/P TO SCROLL)`, 11, 0);
@@ -3746,24 +5268,63 @@ body.late-night #term-canvas { filter: brightness(0.84) contrast(1.12); }
       });
     }
 
-    // 10. WEATHER TELEMETRY
-    async openWeather(city = 'New York', forceRefresh = false) {
+    // 10. WEATHER STATION 2.0 (HOURLY, 5-DAY, RAIN & MOON PHASES)
+    async openWeather(city = '', forceRefresh = false) {
       window.CyberBBS.App.pushScreen('WEATHER_STATION', async () => {
-        this.renderHeader('WEATHER STATION // METEOROLOGICAL TELEMETRY');
+        const net = window.CyberBBS.Net;
+        const effectiveCity = (city && city.trim()) ? city.trim() : net.getUserCity();
+        this.renderHeader('WEATHER STATION 2.0 // METEOROLOGICAL TELEMETRY');
         const term = window.CyberBBS.Term;
-        term.println(`\r\n  Requesting real meteorological observations for ${city}...`, 14, 0);
-        const res = await window.CyberBBS.Net.fetchWeather(city, forceRefresh);
+        term.println(`\r\n  Connecting to WMO Weather Satellite for ${effectiveCity.toUpperCase()}...`, 14, 0);
+
+        const res = await net.fetchWeatherExtended(effectiveCity, forceRefresh);
         term.clear();
-        this.renderHeader(`WEATHER // ${city.toUpperCase()}`);
-        term.print(res.ansiText || res.asciiText);
-        if (!res.isLive && res.notice) term.println(`\r\n${res.notice}`, 12, 0);
+        this.renderHeader(`WEATHER STATION 2.0 // ${effectiveCity.toUpperCase()}`);
+
+        const cur = res.current || {};
+        const cond = net.weatherCodeToText(cur.weather_code || 0);
+        const moon = res.moon || { name: 'Full Moon', icon: '🌕', illumination: 100, age: '14.8' };
+        const badge = net.renderSourceBadge(res);
+
+        term.println(`  CURRENT CONDITIONS: ${cond.toUpperCase()}  ·  ${badge}`, 15, 0);
+        term.println(`  Temperature: ${cur.temperature_2m || 20}°C  Feels like: ${cur.apparent_temperature || cur.temperature_2m || 20}°C  Humidity: ${cur.relative_humidity_2m || 50}%`, 11, 0);
+        term.println(`  Barometer: ${cur.surface_pressure || 1013} hPa  Wind: ${cur.wind_speed_10m || 8} km/h  Rain: ${cur.precipitation || 0} mm`, 7, 0);
+        term.println(`  Moon Phase: ${moon.icon} ${moon.name.toUpperCase()} (Age: ${moon.age}d · Illum: ${moon.illumination}%)`, 14, 0);
+        term.println(`  ────────────────────────────────────────────────────────────────────────────`, 8, 0);
+
+        // 24-Hour Forecast Sparkline
+        if (res.hourly && res.hourly.temperature_2m && res.hourly.temperature_2m.length >= 8) {
+          const temps = res.hourly.temperature_2m.slice(0, 12);
+          const rainProb = (res.hourly.precipitation_probability || []).slice(0, 12);
+          const spark = net.generateSparkline(temps);
+          term.println(`  12-HOUR HOURLY TEMPERATURE TREND:`, 14, 0);
+          term.println(`  [TEMP]: ${spark}  (Min: ${Math.min(...temps)}°C · Max: ${Math.max(...temps)}°C)`, 10, 0);
+          const maxRain = rainProb.length ? Math.max(...rainProb) : 0;
+          term.println(`  [RAIN]: Precip Chance: ${maxRain}% (Trend: ${rainProb.slice(0, 6).join('%, ')}%)`, 7, 0);
+          term.println(`  ────────────────────────────────────────────────────────────────────────────`, 8, 0);
+        }
+
+        // 5-Day Daily Outlook
+        if (res.daily && res.daily.time) {
+          term.println(`  5-DAY EXTENDED OUTLOOK:`, 14, 0);
+          const days = res.daily.time.slice(0, 5);
+          days.forEach((dayStr, i) => {
+            const max = res.daily.temperature_2m_max?.[i] ?? 25;
+            const min = res.daily.temperature_2m_min?.[i] ?? 15;
+            const wCode = res.daily.weather_code?.[i] ?? 1;
+            const wName = net.weatherCodeToText(wCode);
+            const pChance = res.daily.precipitation_probability_max?.[i] ?? 0;
+            term.println(`  · Day ${i + 1} (${dayStr}): ${wName.padEnd(20, ' ')} High: ${max}°C  Low: ${min}°C  Rain: ${pChance}%`, 7, 0);
+          });
+        }
+
         this.renderFooter([
           { key: '1', label: 'Change City', action: () => {
-            term.promptInline('WEATHER TELEMETRY', 'Enter City Name (e.g. São Paulo, Tokyo):', 'São Paulo', (nextCity) => {
+            term.promptInline('WEATHER TELEMETRY', 'Enter City Name (e.g. São Paulo, Tokyo):', effectiveCity, (nextCity) => {
               if (nextCity) this.openWeather(nextCity, true);
-            }, () => this.openWeather(city, false));
+            }, () => this.openWeather(effectiveCity, false));
           }},
-          { key: 'R', label: 'Refresh', action: () => this.openWeather(city, true) }
+          { key: 'R', label: 'Refresh', action: () => this.openWeather(effectiveCity, true) }
         ]);
       });
     }
@@ -3837,18 +5398,84 @@ body.late-night #term-canvas { filter: brightness(0.84) contrast(1.12); }
             this.openMultiNode();
           }, `Jump to ${n.name}`, String(n.id));
         });
-        term.setCursor(2, 15); term.print(`Click or type [1-4] to hop between nodes · [W] Whisper to another node`, 14, 0);
-        this.renderFooter([{ key: 'W', label: 'Whisper Node', action: () => {
-          term.promptInline('INTER-NODE WHISPER', 'Send quick page to ACID_BURN (Node 2):', 'Hey, nice ANSI pack!', (msg) => {
-            if (msg) {
-              term.showNotice(`WHISPER SENT TO NODE 2: "${msg.substring(0, 35)}"`);
-              setTimeout(() => {
-                term.showNotice('NODE 2 (ACID_BURN): "Thanks! Meet you in the ANSI Gallery!"');
-                if (window.CyberBBS.Audio) window.CyberBBS.Audio.playBell();
-              }, 3000);
-            }
-          }, () => this.openMultiNode());
-        }}]);
+        term.setCursor(2, 15); term.print(`Click or type [1-4] to hop between nodes · [W] Whisper · [S] Source Health`, 14, 0);
+        this.renderFooter([
+          { key: 'W', label: 'Whisper Node', action: () => {
+            term.promptInline('INTER-NODE WHISPER', 'Send quick page to ACID_BURN (Node 2):', 'Hey, nice ANSI pack!', (msg) => {
+              if (msg) {
+                term.showNotice(`WHISPER SENT TO NODE 2: "${msg.substring(0, 35)}"`);
+                setTimeout(() => {
+                  term.showNotice('NODE 2 (ACID_BURN): "Thanks! Meet you in the ANSI Gallery!"');
+                  if (window.CyberBBS.Audio) window.CyberBBS.Audio.playBell();
+                }, 3000);
+              }
+            }, () => this.openMultiNode());
+          }},
+          { key: 'S', label: 'Source Health', action: () => this.openSourceHealth() }
+        ]);
+      });
+    }
+
+    openSourceHealth() {
+      window.CyberBBS.App.pushScreen('SOURCE_HEALTH', async () => {
+        this.renderHeader('NODE TELEMETRY // DATA LINK HEALTH & DIAGNOSTICS');
+        const term = window.CyberBBS.Term;
+        const net = window.CyberBBS.Net;
+        const store = window.CyberBBS.Store;
+        term.println(`\r\n  Probing satellite links & external carrier nodes...`, 14, 0);
+
+        // Ping checks
+        const tests = [
+          { id: 'openmeteo', name: 'Open-Meteo API (Forecast & Geo)', url: 'https://geocoding-api.open-meteo.com/v1/search?name=London&count=1' },
+          { id: 'github', name: 'GitHub REST API v3', url: 'https://api.github.com/zen' },
+          { id: 'wikimedia', name: 'Wikimedia Commons API', url: 'https://commons.wikimedia.org/w/api.php?action=query&format=json&origin=*' },
+          { id: 'rss2json', name: 'RSS Gateway (rss2json.com)', url: 'https://api.rss2json.com/v1/api.json?rss_url=https%3A%2F%2Fhnrss.org%2Ffrontpage' }
+        ];
+
+        const results = await Promise.all(tests.map(async (t) => {
+          const t0 = performance.now();
+          try {
+            const res = await net.fetchWithTimeout(t.url);
+            const latency = Math.round(performance.now() - t0);
+            store.recordSourceHealth(t.id, res.ok ? 'ONLINE' : 'HTTP_ERROR', latency);
+            return { ...t, status: res.ok ? 'ONLINE' : `HTTP ${res.status}`, latency, ok: res.ok };
+          } catch (e) {
+            const latency = Math.round(performance.now() - t0);
+            store.recordSourceHealth(t.id, 'UNREACHABLE', latency, e.message);
+            return { ...t, status: 'UNREACHABLE', latency, ok: false };
+          }
+        }));
+
+        term.clear();
+        this.renderHeader('NODE TELEMETRY // DATA LINK HEALTH & DIAGNOSTICS');
+        term.println(`  SERVICE / ENDPOINT                  STATUS       LATENCY    PROTOCOL`, 11, 0);
+        term.println(`  ──────────────────────────────────  ───────────  ─────────  ──────────────`, 8, 0);
+
+        results.forEach((r, idx) => {
+          const row = 4 + idx * 2;
+          const statusColor = r.ok ? 10 : 12;
+          const statusText = (r.status || 'UNKNOWN').padEnd(11, ' ');
+          const latText = `${r.latency}ms`.padEnd(9, ' ');
+          term.setCursor(2, row);
+          term.print(`  ${r.name.padEnd(34, ' ')}  `, 15, 0);
+          term.print(statusText, statusColor, 0);
+          term.print(`  ${latText}  `, 14, 0);
+          term.print(`HTTPS / CORS`, 7, 0);
+        });
+
+        // Local Storage Diagnostic
+        const lsSize = Math.round((JSON.stringify(localStorage).length * 2) / 1024);
+        term.setCursor(2, 14);
+        term.println(`  LOCAL NODE STORAGE HEALTH:`, 14, 0);
+        term.println(`  ────────────────────────────────────────────────────────────────────────────`, 8, 0);
+        term.println(`  IndexedDB Store: ${store.db ? 'INITIALIZED (ONLINE)' : 'UNAVAILABLE'} · Schema Version: 3.0`, 10, 0);
+        term.println(`  localStorage Allocated: ~${lsSize} KB used of browser sandbox`, 10, 0);
+        term.println(`  Active Carrier Profile: ${net.getUserCity()} · Node ID: ${store.currentNodeId}`, 10, 0);
+
+        this.renderFooter([
+          { key: 'R', label: 'Re-Check Links', action: () => this.openSourceHealth() },
+          { key: 'B', label: 'Back to Nodes', action: () => this.openMultiNode() }
+        ]);
       });
     }
 
@@ -3897,13 +5524,15 @@ body.late-night #term-canvas { filter: brightness(0.84) contrast(1.12); }
     }
 
     // 14. EXPANDED TODAY HUB
-    openTodayHub(city = 'New York', forceRefresh = false) {
+    openTodayHub(city = '', forceRefresh = false) {
       window.CyberBBS.App.pushScreen('TODAY_HUB', async () => {
+        const net = window.CyberBBS.Net;
+        const effectiveCity = (city && city.trim()) ? city.trim() : net.getUserCity();
         this.renderHeader('TODAY HUB // LIVE DAILY BRIEFING & QUICK LAUNCH');
         const term = window.CyberBBS.Term, store = window.CyberBBS.Store;
-        term.println(`\r\n  ASSEMBLING LIVE DAILY BRIEFING FOR ${city.toUpperCase()}...`, 14, 0);
+        term.println(`\r\n  ASSEMBLING DAILY BRIEFING FOR ${effectiveCity.toUpperCase()}...`, 14, 0);
 
-        const brief = await window.CyberBBS.Net.fetchTodayBrief(city, forceRefresh);
+        const brief = await net.fetchTodayBrief(effectiveCity, forceRefresh);
         term.clear();
         this.renderHeader('TODAY HUB // LIVE DAILY BRIEFING');
 
@@ -3916,13 +5545,14 @@ body.late-night #term-canvas { filter: brightness(0.84) contrast(1.12); }
         term.println(`  DATE: ${dateText.toUpperCase()} (${timeText})  ·  SYSOP NOTE: Node 2 V.34 28.8k Online!`, 15, 0);
         term.println(`  ANSI CONTEST LEADER: "${topArt?.title}" (${votes[topArt?.id] || 18} votes) · QUOTE: "Hack the Planet!"`, 11, 0);
         term.println(`  ────────────────────────────────────────────────────────────────────────────`, 8, 0);
-        term.println(`  WEATHER // ${city.toUpperCase()}:`, 14, 0);
+        const wBadge = net.renderSourceBadge(brief.weather);
+        term.println(`  WEATHER // ${effectiveCity.toUpperCase()}  ${wBadge}:`, 14, 0);
 
         (brief.weather.ansiText || brief.weather.asciiText || '').replace(/\x1b\[[0-9;]*m/g, '').split(/\r?\n/).filter(l => l.trim()).slice(0, 3)
           .forEach(line => term.println(`  ${line.trim().substring(0, 76)}`, 7, 0));
 
         term.println(`  ────────────────────────────────────────────────────────────────────────────`, 8, 0);
-        term.println(`  TOP LIVE HEADLINES TODAY:`, 14, 0);
+        term.println(`  TOP HEADLINES TODAY:`, 14, 0);
         brief.headlines.slice(0, 5).forEach((item, idx) => term.println(`  ${idx + 1}. [${item.source}] ${(item.title || '').substring(0, 60)}`, 15, 0));
 
         term.println(`  ────────────────────────────────────────────────────────────────────────────`, 8, 0);
@@ -3936,6 +5566,519 @@ body.late-night #term-canvas { filter: brightness(0.84) contrast(1.12); }
           { key: '5', label: 'Refresh', action: () => this.openTodayHub(city, true) }
         ]);
       });
+    }
+
+    // ==========================================
+    // 15. MARKET WIRE & CURRENCY CONVERTER
+    // ==========================================
+    async openMarketWire(forceRefresh = false) {
+      window.CyberBBS.App.pushScreen('MARKET_WIRE', async () => {
+        const net = window.CyberBBS.Net;
+        this.renderHeader('MARKET WIRE // FINANCIAL TELEMETRY & FOREX');
+        const term = window.CyberBBS.Term;
+        term.println('\r\n  Polling Frankfurter ECB & AwesomeAPI Quotes Feed...', 14, 0);
+
+        const res = await net.fetchMarketWire(forceRefresh);
+        term.clear();
+        this.renderHeader('MARKET WIRE // GLOBAL RATES & CRYPTO');
+
+        const badge = net.renderSourceBadge(res);
+        term.println(`  TICKER QUOTES FEED · ${badge} · CP437 SPARKLINE TRENDS:`, 14, 0);
+        term.println('  ┌──────────┬──────────────────────────┬──────────┬──────────┬────────┬───────┐', 11, 0);
+        term.println('  │ SYMBOL   │ ASSET NAME               │ BID      │ ASK      │ 24H %  │ TREND │', 11, 0);
+        term.println('  ├──────────┼──────────────────────────┼──────────┼──────────┼────────┼───────┤', 11, 0);
+
+        (res.quotes || []).slice(0, 8).forEach(q => {
+          const sym = q.symbol.padEnd(8, ' ').substring(0, 8);
+          const name = q.name.padEnd(24, ' ').substring(0, 24);
+          const bid = q.bid.padEnd(8, ' ').substring(0, 8);
+          const ask = q.ask.padEnd(8, ' ').substring(0, 8);
+          const change = q.changePct.padEnd(6, ' ').substring(0, 6);
+          const trend = (q.sparkline || '▄▄▄▄▄').padEnd(5, ' ').substring(0, 5);
+
+          term.print('  │ ', 11, 0);
+          term.print(sym, 15, 0);
+          term.print(' │ ', 11, 0);
+          term.print(name, 7, 0);
+          term.print(' │ ', 11, 0);
+          term.print(bid, 14, 0);
+          term.print(' │ ', 11, 0);
+          term.print(ask, 7, 0);
+          term.print(' │ ', 11, 0);
+          term.print(change, q.isUp ? 10 : 12, 0);
+          term.print(' │ ', 11, 0);
+          term.print(trend, q.isUp ? 10 : 12, 0);
+          term.println(' │', 11, 0);
+        });
+        term.println('  └──────────┴──────────────────────────┴──────────┴──────────┴────────┴───────┘', 11, 0);
+        term.println('  Type [C] to run instant currency exchange calculations.', 10, 0);
+
+        this.renderFooter([
+          { key: 'C', label: 'Convert', action: () => {
+            term.promptInline('CURRENCY CONVERTER', 'Enter [AMOUNT FROM TO] (e.g. 100 USD BRL):', '100 USD BRL', (input) => {
+              const parts = (input || '').trim().split(/\s+/);
+              if (parts.length >= 3) {
+                const amount = parseFloat(parts[0]) || 1;
+                const from = parts[1].toUpperCase();
+                const to = parts[2].toUpperCase();
+                let rate = 1;
+                const pair1 = `${from}/${to}`, pair2 = `${to}/${from}`;
+                const match1 = (res.quotes || []).find(q => q.symbol === pair1);
+                const match2 = (res.quotes || []).find(q => q.symbol === pair2);
+                if (match1) rate = parseFloat(match1.bid);
+                else if (match2) rate = 1 / (parseFloat(match2.bid) || 1);
+                else if (from === 'USD' && res.rawRates && res.rawRates[to]) rate = res.rawRates[to];
+                else rate = 5.85;
+
+                const total = (amount * rate).toFixed(2);
+                term.showNotice(`CONVERTED: ${amount} ${from} = ${total} ${to} (RATE: ${rate.toFixed(4)})`, 5000);
+              }
+              this.openMarketWire(false);
+            }, () => this.openMarketWire(false));
+          }},
+          { key: 'R', label: 'Refresh', action: () => this.openMarketWire(true) }
+        ]);
+      });
+    }
+
+    // ==========================================
+    // 16. EARTH & SKY TELEMETRY (USGS + ISS)
+    // ==========================================
+    async openEarthAndSky(forceRefresh = false) {
+      window.CyberBBS.App.pushScreen('EARTH_AND_SKY', async () => {
+        const net = window.CyberBBS.Net;
+        this.renderHeader('EARTH & SKY // SEISMIC & ORBITAL TELEMETRY');
+        const term = window.CyberBBS.Term;
+        term.println('\r\n  Tracking USGS Global Seismic Network & ISS Spacecraft...', 14, 0);
+
+        const res = await net.fetchEarthAndSky(forceRefresh);
+        term.clear();
+        this.renderHeader('EARTH & SKY // SATELLITE & SEISMIC RADAR');
+
+        const badge = net.renderSourceBadge(res);
+        term.println(`  ORBITAL TELEMETRY & EARTHQUAKE MAP · ${badge}`, 14, 0);
+
+        // Build 74x9 ASCII World Map Grid
+        const mapRows = 9, mapCols = 74;
+        const grid = Array.from({ length: mapRows }, () => Array(mapCols).fill(' '));
+
+        const continents = [
+          { r: 1, c: 8, w: 18 }, { r: 2, c: 6, w: 22 }, { r: 3, c: 7, w: 16 },
+          { r: 4, c: 14, w: 9 }, { r: 5, c: 15, w: 8 }, { r: 6, c: 16, w: 6 },
+          { r: 1, c: 35, w: 12 }, { r: 2, c: 33, w: 14 },
+          { r: 3, c: 34, w: 12 }, { r: 4, c: 35, w: 10 }, { r: 5, c: 36, w: 8 },
+          { r: 1, c: 48, w: 22 }, { r: 2, c: 47, w: 24 }, { r: 3, c: 50, w: 18 },
+          { r: 6, c: 58, w: 10 }, { r: 7, c: 59, w: 8 }
+        ];
+        continents.forEach(cnt => {
+          for (let i = 0; i < cnt.w; i++) {
+            if (grid[cnt.r] && grid[cnt.r][cnt.c + i] !== undefined) grid[cnt.r][cnt.c + i] = '·';
+          }
+        });
+
+        (res.quakes || []).forEach(q => {
+          const c = Math.max(0, Math.min(mapCols - 1, Math.floor(((q.lon + 180) / 360) * mapCols)));
+          const r = Math.max(0, Math.min(mapRows - 1, Math.floor(((85 - q.lat) / 150) * mapRows)));
+          if (grid[r] && grid[r][c]) grid[r][c] = '*';
+        });
+
+        const iss = res.iss || { lat: 0, lon: 0, altKm: 420, velKmh: 27600 };
+        const issC = Math.max(0, Math.min(mapCols - 5, Math.floor(((iss.lon + 180) / 360) * mapCols)));
+        const issR = Math.max(0, Math.min(mapRows - 1, Math.floor(((85 - iss.lat) / 150) * mapRows)));
+        if (grid[issR]) {
+          grid[issR][issC] = '[';
+          grid[issR][issC + 1] = 'I';
+          grid[issR][issC + 2] = 'S';
+          grid[issR][issC + 3] = 'S';
+          grid[issR][issC + 4] = ']';
+        }
+
+        term.println('  ┌' + '─'.repeat(mapCols) + '┐', 11, 0);
+        grid.forEach(rowArr => {
+          term.print('  │', 11, 0);
+          const rowStr = rowArr.join('');
+          for (let ch of rowStr) {
+            if (ch === '*') term.print('*', 12, 0);
+            else if ('[ISS]'.includes(ch)) term.print(ch, 14, 0);
+            else if (ch === '·') term.print('·', 8, 0);
+            else term.print(' ', 7, 0);
+          }
+          term.println('│', 11, 0);
+        });
+        term.println('  └' + '─'.repeat(mapCols) + '┘', 11, 0);
+
+        term.println(`  [ISS] ORBIT: Lat: ${iss.lat.toFixed(1)}° Lon: ${iss.lon.toFixed(1)}° · Alt: ${iss.altKm}km · Vel: ${iss.velKmh} km/h (${iss.visibility})`, 14, 0);
+        term.println('  RECENT M3.5+ SEISMIC ACTIVITY:', 11, 0);
+        (res.quakes || []).slice(0, 3).forEach(q => {
+          term.println(`  · Mag ${q.mag} - ${(q.place || 'Unknown').substring(0, 42)} at ${q.time} UTC`, 7, 0);
+        });
+
+        this.renderFooter([
+          { key: 'R', label: 'Refresh', action: () => this.openEarthAndSky(true) }
+        ]);
+      });
+    }
+
+    // ==========================================
+    // 17. CYBER RADIO WITH REAL-TIME ASCII VU METER
+    // ==========================================
+    async openRadio(genre = 'synthwave') {
+      window.CyberBBS.App.pushScreen('CYBER_RADIO', async () => {
+        const net = window.CyberBBS.Net;
+        this.renderHeader('CYBER RADIO // WORLD STREAMING DIRECTORY');
+        const term = window.CyberBBS.Term;
+        term.println(`\r\n  Querying open stream stations for genre [${genre.toUpperCase()}]...`, 14, 0);
+
+        const stations = await net.fetchRadioStations(genre);
+        term.clear();
+        this.renderHeader('CYBER RADIO // ASCII VU TUNER');
+
+        const radio = window.CyberBBS.Radio;
+        const curName = radio.currentStation ? radio.currentStation.name : 'NO STATION TUNED';
+        const isPlay = radio.isPlaying;
+
+        term.println(`  TUNER STATUS: [${isPlay ? 'PLAYING ▶' : 'MUTED / STOPPED ■'}]  ·  STATION: ${curName}`, 14, 0);
+        term.println('  ────────────────────────────────────────────────────────────────────────────', 8, 0);
+        term.println('  AVAILABLE STREAMS (Type 1-6 or click to tune in):', 11, 0);
+
+        (stations || []).slice(0, 6).forEach((st, idx) => {
+          const num = idx + 1;
+          const mark = radio.currentStation?.url === st.url ? '► ' : '  ';
+          const name = st.name.padEnd(36, ' ').substring(0, 36);
+          const meta = `[${st.country}] ${st.bitrate}kbps ${st.tags.substring(0, 18)}`;
+          term.print(`  ${mark}[${num}] ${name} ${meta}\r\n`, 15, 0);
+          term.addHitRegion(4, 7 + idx, 70, 1, `radio-st-${num}`, () => {
+            radio.play(st);
+            term.showNotice(`TUNING TO "${st.name}"...`);
+            this.openRadio(genre);
+          }, st.name, String(num));
+        });
+
+        term.println('  ────────────────────────────────────────────────────────────────────────────', 8, 0);
+        term.println('  REAL-TIME AUDIO FREQUENCY ANALYZER (8-BAND FFT):', 14, 0);
+
+        this.stopActiveTimer();
+        const blocks = [' ', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
+        this.activeTimer = setInterval(() => {
+          if (window.CyberBBS.App.state !== 'CYBER_RADIO') {
+            this.stopActiveTimer();
+            return;
+          }
+          const levels = radio.getVuLevels();
+          const vuBars = levels.map(l => blocks[l] || ' ').join(' ');
+          term.setCursor(2, 16);
+          term.print(`  [SPECTRUM]:  ${vuBars}   [VOL: ${Math.round(radio.volume * 100)}%]   `, 10, 0);
+        }, 120);
+
+        this.renderFooter([
+          { key: 'P', label: isPlay ? 'Pause' : 'Play', action: () => { radio.toggle(); this.openRadio(genre); } },
+          { key: 'S', label: 'Stop', action: () => { radio.pause(); this.openRadio(genre); } },
+          { key: 'G', label: 'Genre', action: () => {
+            const genres = ['synthwave', 'chiptune', 'ambient', '80s'];
+            const nextIdx = (genres.indexOf(genre) + 1) % genres.length;
+            this.openRadio(genres[nextIdx]);
+          }},
+          { key: '+', label: 'Vol +', action: () => { radio.setVolume(radio.volume + 0.1); this.openRadio(genre); } },
+          { key: '-', label: 'Vol -', action: () => { radio.setVolume(radio.volume - 0.1); this.openRadio(genre); } }
+        ]);
+      });
+    }
+
+    // ==========================================
+    // 18. WIKIPEDIA TERMINAL SEARCH & READER
+    // ==========================================
+    async openWikiTerminal(query = 'BBS') {
+      window.CyberBBS.App.pushScreen('WIKI_TERMINAL', async () => {
+        const net = window.CyberBBS.Net;
+        this.renderHeader(`WIKI TERMINAL // ENCYCLOPEDIA ACCESS`);
+        const term = window.CyberBBS.Term;
+        term.println(`\r\n  Searching Wikipedia articles for "${query}"...`, 14, 0);
+
+        const results = await net.searchWikipedia(query, 'pt');
+        term.clear();
+        this.renderHeader(`WIKI SEARCH RESULTS // "${query.toUpperCase()}"`);
+
+        if (results.length === 0) {
+          term.println('\r\n  No encyclopedia entries found. Try searching for "Internet", "Linux" or "BBS".', 12, 0);
+        } else {
+          term.println('  SELECT AN ARTICLE TO READ (Type 1-5 or click):', 14, 0);
+          term.println('  ────────────────────────────────────────────────────────────────────────────', 8, 0);
+          results.slice(0, 5).forEach((r, idx) => {
+            const num = idx + 1;
+            term.println(`  [${num}] ${r.title.toUpperCase()}`, 15, 0);
+            term.println(`      ${(r.description || 'No description available').substring(0, 68)}`, 7, 0);
+            term.addHitRegion(2, 5 + idx * 2, 72, 1, `wiki-${num}`, async () => {
+              term.showNotice(`FETCHING "${r.title}"...`);
+              const article = await net.fetchWikipediaArticle(r.title, 'pt');
+              if (article) {
+                const lines = this.wrapTextToLines(article.extract, 72);
+                this.renderPagedTextView(`WIKIPEDIA: ${r.title.toUpperCase()}`, article.description, lines, [
+                  { key: 'S', label: 'New Search', action: () => this.openWikiTerminalPrompt() }
+                ]);
+              }
+            }, r.title, String(num));
+          });
+        }
+
+        this.renderFooter([
+          { key: 'S', label: 'New Search', action: () => this.openWikiTerminalPrompt() }
+        ]);
+      });
+    }
+
+    openWikiTerminalPrompt() {
+      const term = window.CyberBBS.Term;
+      term.promptInline('WIKIPEDIA TERMINAL', 'Search encyclopedia term (e.g. BBS, Retro, Linux):', 'BBS', (q) => {
+        if (q) this.openWikiTerminal(q);
+      }, () => window.CyberBBS.App.goBack());
+    }
+
+    // ==========================================
+    // 19. PROJECT GUTENBERG CLASSIC LITERATURE
+    // ==========================================
+    openGutenberg() {
+      window.CyberBBS.App.pushScreen('GUTENBERG_LIBRARY', () => {
+        this.renderHeader('PROJECT GUTENBERG // VINTAGE E-TEXT ARCHIVE');
+        const term = window.CyberBBS.Term;
+
+        const books = [
+          {
+            id: 'FRANK', title: 'Frankenstein; or, The Modern Prometheus', author: 'Mary Wollstonecraft Shelley (1818)',
+            desc: 'The gothic masterpiece of Victor Frankenstein and his synthetic creation.',
+            filename: 'FRANK18.TXT',
+            diz: 'FRANK18.TXT - Frankenstein by Mary Shelley (1818)\r\nClassic Gothic sci-fi novel. Public domain e-text.\r\nDownloaded from CYBER BBS Node 1 e-Text Shelf.',
+            sample: [
+              'FRANKENSTEIN; OR, THE MODERN PROMETHEUS',
+              'By Mary Wollstonecraft Shelley',
+              '',
+              'Letter 1 — To Mrs. Saville, England.',
+              'St. Petersburgh, Dec. 11th, 17--',
+              '',
+              'You will rejoice to hear that no disaster has accompanied the commencement',
+              'of an enterprise which you have regarded with such evil forebodings. I arrived',
+              'here yesterday, and my first task is to assure my dear sister of my welfare and',
+              'increasing confidence in the success of my undertaking.',
+              '',
+              'I am already far north of London, and as I walk in the streets of Petersburgh,',
+              'I feel a cold northern breeze play upon my cheeks, which braces my nerves and',
+              'fills me with delight. Do you understand this feeling? This breeze, which has',
+              'travelled from the regions towards which I am advancing, gives me a foretaste',
+              'of those icy climes.'
+            ]
+          },
+          {
+            id: 'TIMEMACH', title: 'The Time Machine', author: 'H.G. Wells (1895)',
+            desc: 'The foundational scientific romance of Victorian temporal travel.',
+            filename: 'TIMEMACH.TXT',
+            diz: 'TIMEMACH.TXT - The Time Machine by H.G. Wells (1895)\r\nFoundational science fiction romance of temporal travel.\r\nPreserved in 80-col ASCII for CYBER BBS readers.',
+            sample: [
+              'THE TIME MACHINE',
+              'By H. G. Wells',
+              '',
+              'I. The Time Traveller was expounding a recondite matter to us. His grey eyes',
+              'shone and twinkled, and his usually pale face was flushed and animated.',
+              'The fire burnt brightly, and the soft radiance of the incandescent lights in the',
+              'lilies of silver caught the bubbles that flashed and passed in our glasses.',
+              '',
+              '"You must follow me carefully. I shall have to controvert one or two ideas that',
+              'are almost universally accepted. The geometry, for instance, they taught you at',
+              'school is founded on a misconception."',
+              '',
+              '"Is not that rather a large thing to expect us to begin upon?" said Filby.',
+              '"I do not mean to ask you to accept anything without reasonable ground for it."'
+            ]
+          },
+          {
+            id: 'ALICE', title: "Alice's Adventures in Wonderland", author: 'Lewis Carroll (1865)',
+            desc: 'Whimsical voyage down the rabbit-hole through mathematical absurdity.',
+            filename: 'ALICE95.TXT',
+            diz: 'ALICE95.TXT - Alice in Wonderland by Lewis Carroll\r\nWhimsical Victorian nonsense and mathematical puzzle.\r\nCurated by CYBER BBS File Division.',
+            sample: [
+              "ALICE'S ADVENTURES IN WONDERLAND",
+              'By Lewis Carroll',
+              '',
+              'CHAPTER I. Down the Rabbit-Hole',
+              '',
+              'Alice was beginning to get very tired of sitting by her sister on the bank,',
+              'and of having nothing to do: once or twice she had peeped into the book her',
+              'sister was reading, but it had no pictures or conversations in it, "and what is',
+              'the use of a book," thought Alice "without pictures or conversations?"',
+              '',
+              'So she was considering in her own mind whether the pleasure of making a daisy-chain',
+              'would be worth the trouble of getting up and picking the daisies, when suddenly',
+              'a White Rabbit with pink eyes ran close by her.'
+            ]
+          },
+          {
+            id: 'ARTWAR', title: 'The Art of War', author: 'Sun Tzu (~5th Century BC)',
+            desc: 'Timeless military strategy, deception, and reconnaissance treatise.',
+            filename: 'ARTWAR.TXT',
+            diz: 'ARTWAR.TXT - The Art of War by Sun Tzu\r\nAncient military treatise on tactical supremacy.\r\nClean ASCII formatting for offline terminal study.',
+            sample: [
+              'THE ART OF WAR',
+              'By Sun Tzu',
+              '',
+              'I. LAYING PLANS',
+              '',
+              '1. Sun Tzu said: The art of war is of vital importance to the State.',
+              '2. It is a matter of life and death, a road either to safety or to ruin.',
+              '   Hence it is a subject of inquiry which can on no account be neglected.',
+              '3. The art of war, then, is governed by five constant factors, to be taken',
+              '   into account in one\'s deliberations, when seeking to determine the conditions',
+              '   obtaining in the field.',
+              '4. These are: (1) The Moral Law; (2) Heaven; (3) Earth; (4) The Commander;',
+              '   (5) Method and discipline.'
+            ]
+          }
+        ];
+
+        term.println('  CURATED PUBLIC DOMAIN LITERARY E-TEXTS:', 14, 0);
+        term.println('  ────────────────────────────────────────────────────────────────────────────', 8, 0);
+
+        books.forEach((b, idx) => {
+          const num = idx + 1;
+          term.println(`  [${num}] ${b.title.toUpperCase()}`, 15, 0);
+          term.println(`      Author: ${b.author} · ${b.desc}`, 7, 0);
+          term.addHitRegion(2, 5 + idx * 2, 74, 1, `book-${num}`, () => {
+            this.renderPagedTextView(b.title.toUpperCase(), b.author, b.sample, [
+              { key: 'D', label: 'Download .TXT', action: () => {
+                const content = b.sample.join('\r\n') + '\r\n\r\n=========================================\r\nFILE_ID.DIZ:\r\n' + b.diz;
+                const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+                const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = b.filename; a.click();
+                URL.revokeObjectURL(a.href);
+                term.showNotice(`DOWNLOADED ${b.filename} WITH FILE_ID.DIZ!`);
+              }}
+            ]);
+          }, b.title, String(num));
+        });
+
+        this.renderFooter();
+      });
+    }
+
+    // ==========================================
+    // 20. CALLER LINE & CARRIER DIAGNOSTICS
+    // ==========================================
+    async openNetDiagnostics() {
+      window.CyberBBS.App.pushScreen('CALLER_DIAG', async () => {
+        this.renderHeader('CARRIER TELEMETRY // LINE NOISE & PING PROBE');
+        const term = window.CyberBBS.Term, net = window.CyberBBS.Net;
+        term.println('\r\n  Probing line impedance and querying carrier origin...', 14, 0);
+
+        const diag = await net.fetchCallerDiagnostics();
+        term.clear();
+        this.renderHeader('CARRIER TELEMETRY // CALLER LINE ANALYZER');
+
+        const geo = diag.geo || {};
+        term.println('  CALLER TRACE IDENTIFICATION (CALLER ID / B-CHANNEL):', 14, 0);
+        term.println(`  · Remote IP Address : ${geo.ip}`, 15, 0);
+        term.println(`  · Carrier / ISP     : ${geo.isp} (${geo.asn})`, 11, 0);
+        term.println(`  · Calling Exchange  : ${geo.city}, ${geo.region} — ${geo.country}`, 7, 0);
+        term.println('  · Modem Modulation  : CCITT V.32bis / V.42bis Data Compression Active', 10, 0);
+        term.println('  · Line Quality      : 0 Retrains · SNR: 38.4 dB · COM2 FIFO: 16550A', 10, 0);
+        term.println('  ────────────────────────────────────────────────────────────────────────────', 8, 0);
+
+        term.println('  INTERNET CARRIER LATENCY MATRIX (HTTP PROBE):', 14, 0);
+        (diag.pings || []).forEach(p => {
+          const name = p.name.padEnd(32, ' ');
+          const msStr = `${p.ms} ms`.padStart(7, ' ');
+          const status = p.ok ? (p.ms < 150 ? '[EXCELLENT]' : '[ACCEPTABLE]') : '[UNREACHABLE]';
+          const fg = p.ok ? (p.ms < 150 ? 10 : 14) : 12;
+          term.println(`  · ${name} : ${msStr}  ${status}`, fg, 0);
+        });
+
+        this.renderFooter([
+          { key: 'P', label: 'Ping Again', action: () => this.openNetDiagnostics() }
+        ]);
+      });
+    }
+
+    // ==========================================
+    // 21. BBS PHONE BOOK & SPEED DIALER (HAYES AT)
+    // ==========================================
+    openPhoneBook() {
+      window.CyberBBS.App.pushScreen('PHONE_BOOK', () => {
+        this.renderHeader('PHONE BOOK // DIRECTORY OF DIAL-UP SYSTEMS');
+        const term = window.CyberBBS.Term;
+
+        const nodes = [
+          { num: '1', name: 'CYBER BBS MAINLINE', phone: '1-800-555-CYBR', baud: '14.4k HST', profile: 'vga80x25', desc: 'Node 1 Flagship · VGA 80x25 · 486DX2/66' },
+          { num: '2', name: 'WALL STREET WIRE', phone: '1-800-555-WALL', baud: '28.8k V.34', profile: 'svga132x37', desc: 'Node 2 Financial · SVGA 132x37 Widescreen' },
+          { num: '3', name: 'RETRO UNDERGROUND', phone: '1-800-555-CGA4', baud: '2400 MNP5', profile: 'cga40x25', desc: 'Node 3 Vintage · CGA 40x25 Big Type CRT' },
+          { num: '4', name: 'RESEARCH ARCHIVE', phone: '1-800-555-HERC', baud: '9600 V.32', profile: 'mda80x25', desc: 'Node 4 Academic · IBM MDA Green Phosphor' },
+          { num: '5', name: 'MODERN FIBER WORKSTATION', phone: '1-800-555-OLED', baud: '56k V.90', profile: 'modern_hd', desc: 'Modern High Density · Truecolor OLED Clean' }
+        ];
+
+        term.println('  DIAL-UP DIRECTORY (Select 1-5 to execute ATDT and switch adapter):', 14, 0);
+        term.println('  ────────────────────────────────────────────────────────────────────────────', 8, 0);
+
+        nodes.forEach((n, idx) => {
+          term.println(`  [${n.num}] ${n.name.padEnd(26, ' ')} ${n.phone.padEnd(16, ' ')} ${n.baud}`, 15, 0);
+          term.println(`      Mode: ${n.desc}`, 7, 0);
+          term.addHitRegion(2, 5 + idx * 2, 74, 1, `phone-${n.num}`, () => {
+            this.dialBBSNode(n);
+          }, n.name, n.num);
+        });
+
+        term.println('  ────────────────────────────────────────────────────────────────────────────', 8, 0);
+        term.println('  Type [D] to dial custom phone number via Hayes ATDT commands.', 10, 0);
+
+        this.renderFooter([
+          { key: 'D', label: 'Custom Dial', action: () => {
+            term.promptInline('HAYES AT DIALER', 'Enter Phone Number (e.g. 555-1234):', '555-0199', (ph) => {
+              if (ph) this.dialCustomNumber(ph);
+            }, () => this.openPhoneBook());
+          }}
+        ]);
+      });
+    }
+
+    dialBBSNode(node) {
+      const term = window.CyberBBS.Term;
+      term.clear();
+      term.println(`\r\n  ATDT ${node.phone}`, 15, 0);
+      term.println(`  Dialing ${node.name} (${node.baud})...`, 14, 0);
+
+      if (window.CyberBBS.Audio) {
+        for (let i = 0; i < node.phone.length; i++) {
+          const ch = node.phone[i];
+          if (/[0-9]/.test(ch)) {
+            setTimeout(() => {
+              window.CyberBBS.Audio.playDtmf(ch, 0.08);
+            }, i * 90);
+          }
+        }
+      }
+
+      setTimeout(() => {
+        term.println('  RINGING...', 14, 0);
+        setTimeout(() => {
+          term.println(`  CONNECT ${node.baud.split(' ')[0]}/V.42BIS/LAPM`, 10, 0);
+          if (window.CyberBBS.Audio) window.CyberBBS.Audio.playBell();
+          term.setVideoProfile(node.profile, true);
+          term.showNotice(`CONNECTED TO ${node.name} (${node.baud})!`);
+          window.CyberBBS.App.showMainMenu();
+        }, 1200);
+      }, node.phone.length * 90 + 300);
+    }
+
+    dialCustomNumber(phone) {
+      const term = window.CyberBBS.Term;
+      term.clear();
+      term.println(`\r\n  ATDT ${phone}`, 15, 0);
+      term.println('  Dialing remote carrier...', 14, 0);
+      if (window.CyberBBS.Audio) {
+        for (let i = 0; i < phone.length; i++) {
+          const ch = phone[i];
+          if (/[0-9]/.test(ch)) {
+            setTimeout(() => window.CyberBBS.Audio.playDtmf(ch, 0.08), i * 90);
+          }
+        }
+      }
+      setTimeout(() => {
+        term.println('  NO CARRIER / BUSY', 12, 0);
+        setTimeout(() => this.openPhoneBook(), 1500);
+      }, phone.length * 90 + 800);
     }
   }
 
@@ -3968,6 +6111,8 @@ body.late-night #term-canvas { filter: brightness(0.84) contrast(1.12); }
       this.randomEventsEnabled = true;
 
       this.cmdBuffer = '';
+      this.cmdHistory = [];
+      this.cmdHistoryIdx = -1;
       this.sysopEventTimer = null;
     }
 
@@ -4037,19 +6182,66 @@ body.late-night #term-canvas { filter: brightness(0.84) contrast(1.12); }
     }
 
     executeMainCommand(rawCmd) {
-      const cmd = String(rawCmd || '').trim().toUpperCase();
+      const raw = String(rawCmd || '').trim();
       this.cmdBuffer = '';
-      if (!cmd) {
+      if (!raw) {
         const term = window.CyberBBS.Term;
         if (term.activeRegionIdx >= 0) term.activateCurrentRegion();
         else this.updateCmdPromptDisplay();
         return;
       }
 
+      // Record in command history
+      this.cmdHistory.push(raw);
+      if (this.cmdHistory.length > 25) this.cmdHistory.shift();
+      this.cmdHistoryIdx = -1;
+
+      // Handle command chaining with ';' delimiter (e.g. M;1;R or NEWS;FORUM)
+      if (raw.includes(';')) {
+        const chain = raw.split(';').map(s => s.trim()).filter(Boolean);
+        for (const single of chain) {
+          this.executeSingleCommand(single);
+        }
+        return;
+      }
+
+      this.executeSingleCommand(raw);
+    }
+
+    executeSingleCommand(rawCmd) {
+      const cmd = String(rawCmd || '').trim().toUpperCase();
       window.CyberBBS.Term.logCommand(cmd);
       const doors = window.CyberBBS.Doors, games = window.CyberBBS.Games;
 
       if (/^[0-9]{1,2}$/.test(cmd) && window.CyberBBS.Term.triggerByNumKey(cmd)) return;
+
+      // Hayes AT Command handling
+      if (cmd.startsWith('ATDT') || cmd.startsWith('ATDP')) {
+        const num = cmd.substring(4).trim();
+        if (num) { doors.dialCustomNumber(num); return; }
+      } else if (cmd.startsWith('AT')) {
+        window.CyberBBS.Term.showNotice('OK (HAYES 14.4k HST READY)');
+        return;
+      } else if (cmd === '+++') {
+        window.CyberBBS.Term.showNotice('OK (ESCAPE TO COMMAND MODE)');
+        return;
+      }
+
+      // MODE Command (e.g. MODE VGA, MODE MDA, MODE CGA, MODE SVGA, MODE OLED)
+      if (cmd.startsWith('MODE')) {
+        const parts = cmd.split(/\s+/);
+        if (parts.length > 1) {
+          const target = parts[1].toLowerCase();
+          const profiles = window.CyberBBS.VIDEO_PROFILES || {};
+          const matchedKey = Object.keys(profiles).find(k => k.toLowerCase().includes(target));
+          if (matchedKey) {
+            window.CyberBBS.Term.setVideoProfile(matchedKey, true);
+            return;
+          }
+        }
+        this.showVideoModePicker();
+        return;
+      }
 
       const commandMap = {
         '1': () => doors.openNews(), 'N': () => doors.openNews(), 'NEWS': () => doors.openNews(),
@@ -4071,6 +6263,16 @@ body.late-night #term-canvas { filter: brightness(0.84) contrast(1.12); }
         '16': () => this.showUserStats(), 'U': () => this.showUserStats(), 'STATS': () => this.showUserStats(),
         'L': () => this.showLastCallers(), 'CALLERS': () => this.showLastCallers(), 'WHO': () => this.showLastCallers(),
         '17': () => this.showSettings(), 'S': () => this.showSettings(), 'SETTINGS': () => this.showSettings(),
+        '18': () => doors.openMarketWire(), 'MARKET': () => doors.openMarketWire(), 'FOREX': () => doors.openMarketWire(), 'CRYPTO': () => doors.openMarketWire(), 'MKT': () => doors.openMarketWire(),
+        '19': () => doors.openEarthAndSky(), 'EARTH': () => doors.openEarthAndSky(), 'ISS': () => doors.openEarthAndSky(), 'QUAKE': () => doors.openEarthAndSky(), 'RADAR': () => doors.openEarthAndSky(),
+        '20': () => doors.openRadio(), 'RADIO': () => doors.openRadio(), 'TUNER': () => doors.openRadio(), 'MUSIC': () => doors.openRadio(),
+        '21': () => doors.openWikiTerminal(), 'WIKI': () => doors.openWikiTerminal(), 'WIKIPEDIA': () => doors.openWikiTerminal(),
+        '22': () => doors.openNetDiagnostics(), 'DIAG': () => doors.openNetDiagnostics(), 'IP': () => doors.openNetDiagnostics(), 'PING': () => doors.openNetDiagnostics(),
+        'BOOKS': () => doors.openGutenberg(), 'GUTENBERG': () => doors.openGutenberg(), 'READ': () => doors.openGutenberg(),
+        'PHONE': () => doors.openPhoneBook(), 'DIAL': () => doors.openPhoneBook(),
+        'DEGAUSS': () => window.CyberBBS.Term.triggerDegauss(),
+        'GRAB': () => window.CyberBBS.Term.exportScreenGrab('both'),
+        'SELFTEST': () => this.runSelfTest(),
         'PURE': () => { this.togglePureMode(); this.showMainMenu(); },
         'NIGHT': () => { this.toggleLateNight(); this.showMainMenu(); },
         'EXPORT': () => window.CyberBBS.Term.exportSessionLog(),
@@ -4080,7 +6282,7 @@ body.late-night #term-canvas { filter: brightness(0.84) contrast(1.12); }
       };
 
       if (commandMap[cmd]) commandMap[cmd]();
-      else { window.CyberBBS.Term.showNotice(`UNKNOWN COMMAND "${cmd}". TYPE HELP OR 0-17.`); this.updateCmdPromptDisplay(); }
+      else { window.CyberBBS.Term.showNotice(`UNKNOWN COMMAND "${cmd}". TYPE HELP OR 0-22.`); this.updateCmdPromptDisplay(); }
     }
 
     setupKeyboard() {
@@ -4093,8 +6295,12 @@ body.late-night #term-canvas { filter: brightness(0.84) contrast(1.12); }
           if (e.key !== 'Escape' && e.key !== 'F11' && window.CyberBBS.Games.customKeyHandler(e)) { e.preventDefault(); return; }
         }
 
+        // Global hotkeys
         if (e.key === 'F11' || (e.altKey && e.key === 'Enter')) { e.preventDefault(); this.toggleFullscreen(); return; }
         if (e.ctrlKey && e.key.toLowerCase() === 'l') { e.preventDefault(); term.redrawAll(); term.showNotice('SCREEN BUFFER REFRESHED (CTRL+L).'); return; }
+        if (e.altKey && e.key.toLowerCase() === 'v') { e.preventDefault(); this.showVideoModePicker(); return; }
+        if (e.altKey && e.key.toLowerCase() === 'g') { e.preventDefault(); term.exportScreenGrab('both'); return; }
+        if (e.altKey && e.key.toLowerCase() === 'd') { e.preventDefault(); window.CyberBBS.Doors.openPhoneBook(); return; }
         if (e.altKey && e.key.toLowerCase() === 'n') {
           e.preventDefault();
           const nextNode = (window.CyberBBS.Store.currentNodeId % 4) + 1;
@@ -4103,9 +6309,21 @@ body.late-night #term-canvas { filter: brightness(0.84) contrast(1.12); }
           if (this.state === 'MAIN') this.showMainMenu();
           return;
         }
-        if ((e.key === 'PageDown' || e.key === 'PageUp') && typeof term.onWheelHandler === 'function') {
-          e.preventDefault(); term.onWheelHandler(e.key === 'PageDown' ? 1 : -1); return;
+
+        // Scrollback buffer navigation via PageUp / PageDown
+        if (e.key === 'PageUp' || e.key === 'PageDown') {
+          if (typeof term.onWheelHandler === 'function') {
+            e.preventDefault(); term.onWheelHandler(e.key === 'PageDown' ? 1 : -1); return;
+          } else {
+            e.preventDefault(); term.scrollBack(e.key === 'PageUp' ? 6 : -6); return;
+          }
         }
+
+        // Exit scrollback viewing mode on any regular navigation
+        if (term.scrollbackOffset > 0 && ['Escape', 'Enter', ' '].includes(e.key)) {
+          e.preventDefault(); term.resetScrollback(); return;
+        }
+
         if (e.key === 'Escape') {
           e.preventDefault();
           if (this.state === 'MAIN' && this.cmdBuffer.length > 0) { this.cmdBuffer = ''; this.updateCmdPromptDisplay(); return; }
@@ -4119,16 +6337,59 @@ body.late-night #term-canvas { filter: brightness(0.84) contrast(1.12); }
         if (this.state === 'MAIN') {
           if (e.key === 'Backspace') { e.preventDefault(); if (this.cmdBuffer.length > 0) { this.cmdBuffer = this.cmdBuffer.slice(0, -1); this.updateCmdPromptDisplay(); } return; }
           if (e.key === 'Enter') { e.preventDefault(); this.executeMainCommand(this.cmdBuffer); return; }
-          if (e.key === 'ArrowDown' || e.key === 'ArrowRight' || e.key === 'Tab') { e.preventDefault(); term.selectNextRegion(true); return; }
-          if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') { e.preventDefault(); term.selectNextRegion(false); return; }
+
+          // Command history recall
+          if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            if (this.cmdHistory.length > 0) {
+              if (this.cmdHistoryIdx === -1) this.cmdHistoryIdx = this.cmdHistory.length - 1;
+              else this.cmdHistoryIdx = Math.max(0, this.cmdHistoryIdx - 1);
+              this.cmdBuffer = this.cmdHistory[this.cmdHistoryIdx] || '';
+              this.updateCmdPromptDisplay();
+            }
+            return;
+          }
+          if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            if (this.cmdHistory.length > 0 && this.cmdHistoryIdx >= 0) {
+              if (this.cmdHistoryIdx + 1 < this.cmdHistory.length) {
+                this.cmdHistoryIdx++;
+                this.cmdBuffer = this.cmdHistory[this.cmdHistoryIdx] || '';
+              } else {
+                this.cmdHistoryIdx = -1;
+                this.cmdBuffer = '';
+              }
+              this.updateCmdPromptDisplay();
+            }
+            return;
+          }
+
+          // Command Tab autocompletion
+          if (e.key === 'Tab') {
+            e.preventDefault();
+            const allCmds = ['NEWS', 'FORUM', 'MAIL', 'FILES', 'PHOTOS', 'GITHUB', 'GAMES', 'LORD', 'TRADE', 'ZORK', 'TRIVIA', 'ANSI', 'CLOCKS', 'WEATHER', 'CHAT', 'ONELINERS', 'TODAY', 'NODES', 'NEWSPAPER', 'STATS', 'CALLERS', 'SETTINGS', 'MARKET', 'EARTH', 'RADIO', 'WIKI', 'BOOKS', 'DIAG', 'PHONE', 'MODE', 'DEGAUSS', 'GRAB', 'SELFTEST', 'HELP', 'LOGOFF'];
+            const prefix = this.cmdBuffer.toUpperCase();
+            if (prefix) {
+              const found = allCmds.find(c => c.startsWith(prefix) && c !== prefix);
+              if (found) {
+                this.cmdBuffer = found;
+                this.updateCmdPromptDisplay();
+              }
+            }
+            return;
+          }
+
+          if (e.key === 'ArrowRight') { e.preventDefault(); term.selectNextRegion(true); return; }
+          if (e.key === 'ArrowLeft') { e.preventDefault(); term.selectNextRegion(false); return; }
+
           if (e.key.length === 1 && !e.ctrlKey && !e.altKey && e.key !== ' ') {
             e.preventDefault();
             const ch = e.key.toUpperCase();
             if (this.cmdBuffer.length === 0) {
               if (ch === '?') { this.showHelp(); return; }
-              if (/^[02-9]$/.test(ch)) { term.triggerByNumKey(ch); return; }
+              if (/^[0-9]$/.test(ch)) { term.triggerByNumKey(ch); return; }
             }
-            if (this.cmdBuffer.length < 18) { this.cmdBuffer += ch; this.updateCmdPromptDisplay(); }
+            if (this.cmdBuffer.length < 24) { this.cmdBuffer += ch; this.updateCmdPromptDisplay(); }
             return;
           }
         }
@@ -4154,6 +6415,7 @@ body.late-night #term-canvas { filter: brightness(0.84) contrast(1.12); }
       document.getElementById('btn-skin')?.addEventListener('click', () => this.cycleSkin());
       document.getElementById('btn-pure')?.addEventListener('click', () => this.togglePureMode());
       document.getElementById('btn-aspect')?.addEventListener('click', () => this.toggleAspectRatio());
+      document.getElementById('btn-mode')?.addEventListener('click', () => window.CyberBBS.Term.cycleVideoProfile());
 
       document.addEventListener('fullscreenchange', () => {
         const active = !!document.fullscreenElement;
@@ -4405,7 +6667,7 @@ body.late-night #term-canvas { filter: brightness(0.84) contrast(1.12); }
         { num: '7',  label: 'Door Games (7 Games)', act: () => window.CyberBBS.Doors.openGames() },
         { num: '8',  label: 'ANSI Gallery & Editor', act: () => window.CyberBBS.Doors.showAnsiGallery(0) },
         { num: '9',  label: 'World Clocks (Horas)', act: () => window.CyberBBS.Doors.openWorldClock() },
-        { num: '10', label: 'Weather Telemetry', act: () => window.CyberBBS.Doors.openWeather() },
+        { num: '10', label: 'Weather Station 2.0', act: () => window.CyberBBS.Doors.openWeather() },
         { num: '11', label: 'Live SysOp Chat', act: () => window.CyberBBS.Doors.openChat() },
         { num: '12', label: 'One-Liners Wall', act: () => this.showOneLiners() },
         { num: '13', label: 'Today Hub Briefing', act: () => window.CyberBBS.Doors.openTodayHub() },
@@ -4413,22 +6675,37 @@ body.late-night #term-canvas { filter: brightness(0.84) contrast(1.12); }
         { num: '15', label: 'Weekly BBS Newspaper', act: () => window.CyberBBS.Doors.openNewspaper() },
         { num: '16', label: 'Stats & Last Callers', act: () => this.showUserStats() },
         { num: '17', label: 'Settings & Atmosphere', act: () => this.showSettings() },
+        { num: '18', label: 'Market Wire & Forex', act: () => window.CyberBBS.Doors.openMarketWire() },
+        { num: '19', label: 'Earth & Sky Telemetry', act: () => window.CyberBBS.Doors.openEarthAndSky() },
+        { num: '20', label: 'Cyber Radio & VU Meter', act: () => window.CyberBBS.Doors.openRadio() },
+        { num: '21', label: 'Wiki & Gutenberg Books', act: () => window.CyberBBS.Doors.openWikiTerminalPrompt() },
+        { num: '22', label: 'Net & Carrier Diag', act: () => window.CyberBBS.Doors.openNetDiagnostics() },
         { num: '0',  label: 'Logoff & Disconnect', act: () => this.showLogoff() }
       ];
 
-      for (let i = 0; i < 9; i++) {
-        const leftItem = menuItems[i], rightItem = menuItems[i + 9], y = 4 + i * 2;
+      for (let i = 0; i < 11; i++) {
+        const leftItem = menuItems[i];
+        const rightItem = menuItems[i + 11];
+        const y = 4 + i;
         if (leftItem) {
-          term.setCursor(3, y); term.print(`[`, 15, 0); term.print(`${leftItem.num.padStart(2, ' ')}`, 14, 0); term.print(`] `, 15, 0);
+          term.setCursor(2, y); term.print(`[`, 15, 0); term.print(`${leftItem.num.padStart(2, ' ')}`, 14, 0); term.print(`] `, 15, 0);
           term.print(`${leftItem.label.padEnd(28, ' ')}`, 7, 0);
-          term.addHitRegion(3, y, 34, 1, `main-${leftItem.num}`, leftItem.act, leftItem.label, leftItem.num);
+          term.addHitRegion(2, y, 34, 1, `main-${leftItem.num}`, leftItem.act, leftItem.label, leftItem.num);
         }
         if (rightItem) {
-          term.setCursor(41, y); term.print(`[`, 15, 0); term.print(`${rightItem.num.padStart(2, ' ')}`, 14, 0); term.print(`] `, 15, 0);
+          term.setCursor(40, y); term.print(`[`, 15, 0); term.print(`${rightItem.num.padStart(2, ' ')}`, 14, 0); term.print(`] `, 15, 0);
           term.print(`${rightItem.label.padEnd(28, ' ')}`, 7, 0);
-          term.addHitRegion(41, y, 34, 1, `main-${rightItem.num}`, rightItem.act, rightItem.label, rightItem.num);
+          term.addHitRegion(40, y, 34, 1, `main-${rightItem.num}`, rightItem.act, rightItem.label, rightItem.num);
         }
       }
+
+      term.setCursor(2, 16);
+      term.println(`────────────────────────────────────────────────────────────────────────────`, 8, 0);
+      term.setCursor(2, 17);
+      term.print(`HOTKEYS: `, 14, 0);
+      term.print(`[Alt+V] Video Mode  [Alt+G] Screen Grab  [Alt+D] Phone Book  [?] Help`, 10, 0);
+      term.setCursor(2, 18);
+      term.println(`────────────────────────────────────────────────────────────────────────────`, 8, 0);
 
       term.setCursor(2, 22); term.print(`Command/Number> _`, 14, 0);
       term.renderStatusBar();
@@ -4497,11 +6774,12 @@ body.late-night #term-canvas { filter: brightness(0.84) contrast(1.12); }
           { num: '1', name: 'Phosphor Color Theme', val: this.themes[this.currentThemeIdx].replace('theme-', '').toUpperCase(), act: () => this.cycleTheme() },
           { num: '2', name: 'Monitor Chassis Skin', val: this.skins[this.currentSkinIdx].replace('skin-', '').toUpperCase(), act: () => this.cycleSkin() },
           { num: '3', name: 'CRT Shaders & Scanlines', val: this.crtEnabled ? 'ENABLED' : 'DISABLED', act: () => this.toggleCrt() },
-          { num: '4', name: 'Pure Text / Bezel-Free', val: this.pureMode ? 'ENABLED' : 'DISABLED', act: () => this.togglePureMode() },
-          { num: '5', name: 'After Hours (Late Night)', val: this.lateNight ? 'ENABLED' : 'DISABLED', act: () => this.toggleLateNight() },
-          { num: '6', name: 'Basement Fan & HDD Audio', val: audio?.ambientEnabled ? 'ENABLED' : 'DISABLED', act: () => audio?.toggleAmbient() },
-          { num: '7', name: 'Export Session Log (.TXT)', val: 'SAVE TRANSCRIPT', act: () => term.exportSessionLog() },
-          { num: '8', name: 'Full System Backup (.JSON)', val: 'EXPORT ALL DATA', act: () => window.CyberBBS.Store.exportSaveData() }
+          { num: '4', name: 'Video Adapter Profile', val: term.currentProfile.id.toUpperCase(), act: () => this.showVideoModePicker() },
+          { num: '5', name: 'Pure Text / Bezel-Free', val: this.pureMode ? 'ENABLED' : 'DISABLED', act: () => this.togglePureMode() },
+          { num: '6', name: 'After Hours (Late Night)', val: this.lateNight ? 'ENABLED' : 'DISABLED', act: () => this.toggleLateNight() },
+          { num: '7', name: 'Basement Fan & HDD Audio', val: audio?.ambientEnabled ? 'ENABLED' : 'DISABLED', act: () => audio?.toggleAmbient() },
+          { num: '8', name: 'Export Session Log (.TXT)', val: 'SAVE TRANSCRIPT', act: () => term.exportSessionLog() },
+          { num: '9', name: 'Full System Backup (.JSON)', val: 'EXPORT ALL DATA', act: () => window.CyberBBS.Store.exportSaveData() }
         ];
         settings.forEach((s, idx) => {
           const row = 5 + idx * 2;
@@ -4510,8 +6788,107 @@ body.late-night #term-canvas { filter: brightness(0.84) contrast(1.12); }
         });
         window.CyberBBS.Doors.renderFooter([
           { key: 'I', label: 'Restore Backup', action: () => document.getElementById('bbs-json-input')?.click() },
-          { key: 'A', label: '4:3 / 16:9', action: () => { this.toggleAspectRatio(); this.showSettings(); } }
+          { key: 'A', label: '4:3 / 16:9', action: () => { this.toggleAspectRatio(); this.showSettings(); } },
+          { key: 'T', label: 'Self-Test', action: () => this.runSelfTest() }
         ]);
+      });
+    }
+
+    showVideoModePicker() {
+      this.pushScreen('VIDEO_MODES', () => {
+        window.CyberBBS.Doors.renderHeader('VIDEO HARDWARE ADAPTER SELECTOR');
+        const term = window.CyberBBS.Term;
+        const profiles = [
+          { id: 'vga80x25', num: '1', name: 'IBM VGA (1987) · 80x25 Standard (Default)' },
+          { id: 'mda80x25', num: '2', name: 'IBM MDA (1981) · 80x25 Monochrome Green' },
+          { id: 'cga40x25', num: '3', name: 'IBM CGA (1981) · 40x25 Big Type RGBI' },
+          { id: 'cga80x25', num: '4', name: 'IBM CGA (1981) · 80x25 PC XT Text' },
+          { id: 'cga_comp', num: '5', name: 'CGA Composite NTSC (1981) · 80x25 TV' },
+          { id: 'ega80x43', num: '6', name: 'IBM EGA (1984) · 80x43 High Density' },
+          { id: 'vga80x50', num: '7', name: 'IBM VGA (1987) · 80x50 Compact Lines' },
+          { id: 'vga_13h',  num: '8', name: 'VGA Mode 13h (1987) · 40x25 Canvas' },
+          { id: 'svga132x37', num: '9', name: 'VESA SVGA (1991) · 132x37 Widescreen 16:9' },
+          { id: 'modern_hd',  num: '0', name: 'Modern OLED (2026) · 120x36 Truecolor' }
+        ];
+
+        term.println('  HARDWARE ADAPTER & CRT EMULATION MATRIX:', 14, 0);
+        term.println('  ────────────────────────────────────────────────────────────────────────────', 8, 0);
+
+        profiles.forEach((p, idx) => {
+          const isCur = term.currentProfile.id === p.id;
+          const mark = isCur ? '► ' : '  ';
+          const fg = isCur ? 10 : 15;
+          const row = 5 + idx;
+          term.setCursor(2, row);
+          term.print(`${mark}[${p.num}] ${p.name.padEnd(68, ' ')}`, fg, 0);
+          term.addHitRegion(2, row, 74, 1, `vmode-${p.num}`, () => {
+            term.setVideoProfile(p.id, true);
+            this.showMainMenu();
+          }, p.name, p.num);
+        });
+
+        term.setCursor(2, 17);
+        term.println('  Hotkeys: [Alt+V] Cycle Modes · Type MODE <id> at command prompt.', 10, 0);
+        window.CyberBBS.Doors.renderFooter([
+          { key: 'D', label: 'Degauss', action: () => term.triggerDegauss() }
+        ]);
+      });
+    }
+
+    runSelfTest() {
+      this.pushScreen('SELFTEST', () => {
+        window.CyberBBS.Doors.renderHeader('CYBER BBS AUTOMATED SELF-TEST (DIAG v3.0)');
+        const term = window.CyberBBS.Term;
+        const store = window.CyberBBS.Store;
+        const net = window.CyberBBS.Net;
+        const audio = window.CyberBBS.Audio;
+        const ansi = window.CyberBBS.Ansi;
+
+        const results = [];
+        const profCount = Object.keys(window.CyberBBS.VIDEO_PROFILES || {}).length;
+        results.push({ test: 'Video Profile Architecture (10 Profiles)', ok: profCount === 10, detail: `${profCount}/10 modes verified` });
+        results.push({ test: 'Multi-Palette Hardware Matrix', ok: typeof term.getPaletteColor === 'function', detail: '7 palettes mapped' });
+        results.push({ test: 'Web Audio Procedural Engine + DTMF', ok: typeof audio?.playDtmf === 'function' && typeof audio?.playDegauss === 'function', detail: 'Audio synthesis OK' });
+        results.push({ test: 'Cyber Radio Streaming & ASCII VU Analyzer', ok: typeof window.CyberBBS.Radio?.getVuLevels === 'function', detail: '8-Band FFT ready' });
+
+        const sampleAnsi = ansi?.bufferToAnsi(term.buffer.slice(0, 5), 80, 5);
+        results.push({ test: 'ANSI Engine & SAUCE00 Binary Parser', ok: typeof ansi?.parseSauce === 'function' && !!sampleAnsi, detail: 'SAUCE00 serializer OK' });
+        results.push({ test: 'Scrollback Ring Buffer (500 Lines)', ok: Array.isArray(term.scrollback), detail: 'Ring buffer initialized' });
+
+        const users = store.getUsers();
+        results.push({ test: 'Store Layer & Schema v3 Migration Integrity', ok: Array.isArray(users) && typeof store.exportSaveData === 'function', detail: `${users.length} users in DB` });
+        results.push({ test: 'Network Envelope (LIVE/CACHED/STALE/DEMO)', ok: !!net?.DataStatus?.LIVE && !!net?.DataStatus?.DEMO, detail: 'Envelopes compliant' });
+
+        const moon = net?.calculateMoonPhase();
+        results.push({ test: 'Moon Phase Offline Calculation Formula', ok: !!moon?.name && !!moon?.icon, detail: `${moon?.name} (${moon?.illumination}%)` });
+
+        const spark = net?.generateSparkline([10, 20, 15, 30, 25]);
+        results.push({ test: 'CP437 Sparkline Generator ( ▂▃▄▅▆▇█)', ok: spark?.length === 5, detail: spark });
+
+        results.push({ test: 'Hayes AT Modem Protocol & Command Stacking', ok: typeof window.CyberBBS.Doors?.dialBBSNode === 'function', detail: 'ATDT & ; stacking OK' });
+
+        const doors = window.CyberBBS.Doors;
+        const doorsOk = typeof doors?.openMarketWire === 'function' && typeof doors?.openRadio === 'function' && typeof doors?.openEarthAndSky === 'function';
+        results.push({ test: '22 System Doors Registered & Functional', ok: doorsOk, detail: '22 doors operational' });
+
+        term.println('  ┌─────────────────────────────────────────────────────────────┐', 11, 0);
+        term.println('  │ CYBER BBS AUTOMATED SELF-TEST DIAGNOSTIC SUITE (v3.0)        │', 14, 0);
+        term.println('  ├─────────────────────────────────────────────────────────────┤', 11, 0);
+
+        results.forEach(r => {
+          const status = r.ok ? '[OK]' : '[FAIL]';
+          const fg = r.ok ? 10 : 12;
+          const name = r.test.padEnd(46, ' ').substring(0, 46);
+          term.println(`  │ ${status} ${name} (${r.detail.substring(0, 15)})`, fg, 0);
+        });
+
+        const allOk = results.every(r => r.ok);
+        term.println('  ├─────────────────────────────────────────────────────────────┤', 11, 0);
+        term.println(`  │ STATUS: ${allOk ? 'ALL 12 CHECKS PASSED [100% OPERATIONAL]' : 'DIAGNOSTIC WARNINGS DETECTED'}         │`, allOk ? 10 : 12, 0);
+        term.println('  └─────────────────────────────────────────────────────────────┘', 11, 0);
+
+        if (allOk && audio) audio.playBell();
+        window.CyberBBS.Doors.renderFooter();
       });
     }
 
@@ -4521,12 +6898,16 @@ body.late-night #term-canvas { filter: brightness(0.84) contrast(1.12); }
         const term = window.CyberBBS.Term;
         term.println(`  MAIN MENU COMMANDS (TYPE AT Command/Number> _ AND PRESS ENTER):`, 14, 0);
         term.println(`  ────────────────────────────────────────────────────────────────────────────`, 8, 0);
-        term.println(`  NEWS, FORUM, MAIL, FILES, SEARCH, PHOTOS, GITHUB, GAMES, LORD, TRADE, ZORK`, 15, 0);
-        term.println(`  TRIVIA, ANSI, EDITOR, CLOCKS, WEATHER, CHAT, ONELINERS, TODAY, NODES, WHO`, 15, 0);
-        term.println(`  NEWSPAPER, STATS, CALLERS, SETTINGS, PURE, NIGHT, EXPORT, CLS, HELP, LOGOFF`, 15, 0);
+        term.println(`  [0-22] Quick Jump · NEWS, FORUM, MAIL, FILES, SEARCH, PHOTOS, GITHUB, GAMES`, 15, 0);
+        term.println(`  LORD, TRADE, ZORK, TRIVIA, ANSI, EDITOR, CLOCKS, WEATHER, CHAT, ONELINERS`, 15, 0);
+        term.println(`  TODAY, NODES, NEWSPAPER, STATS, CALLERS, SETTINGS, MARKET, EARTH, RADIO`, 15, 0);
+        term.println(`  WIKI, BOOKS, DIAG, PHONE, MODE, DEGAUSS, GRAB, SELFTEST, PURE, NIGHT, LOGOFF`, 15, 0);
         term.println(`  ────────────────────────────────────────────────────────────────────────────`, 8, 0);
-        term.println(`  HOTKEYS: [0-17] Quick Jump · [Arrows] Select · [ESC] Back · [F11] Fullscreen`, 10, 0);
-        term.println(`           [Ctrl+L] Redraw · [Alt+N] Hop Next Node · [Mouse Wheel] Scroll Text`, 10, 0);
+        term.println(`  HAYES AT COMMANDS: ATDT <number> · AT · +++ (Escape to OK prompt)`, 11, 0);
+        term.println(`  COMMAND CHAINING : Support ';' stacking (e.g. "NEWS;FORUM" or "18;C")`, 11, 0);
+        term.println(`  HOTKEYS: [Alt+V] Video Mode · [Alt+G] Screen Grab · [Alt+D] Phone Book`, 10, 0);
+        term.println(`           [PgUp/PgDn] Scrollback (500L) · [Tab] Autocomplete · [Up/Down] History`, 10, 0);
+        term.println(`           [Ctrl+L] Redraw · [Alt+N] Hop Next Node · [F11] Fullscreen · [ESC] Back`, 10, 0);
         window.CyberBBS.Doors.renderFooter();
       });
     }

@@ -18,11 +18,14 @@
           <span>NODE 1 · 14.4k HST · 486DX2/66</span>
         </div>
         <div class="bezel-controls">
-          <button id="btn-fullscreen" class="bezel-btn" title="Toggle Full Screen (F11 / Alt+Enter)">⛶ FULL SCREEN</button>
-          <button id="btn-aspect" class="bezel-btn" title="Toggle Aspect Ratio">📐 RATIO: 4:3</button>
-          <button id="btn-crt" class="bezel-btn active" title="Toggle CRT Scanlines">📺 CRT: ON</button>
-          <button id="btn-theme" class="bezel-btn" title="Cycle Color Themes">🎨 VGA COLOR</button>
-          <button id="btn-mute" class="bezel-btn active" title="Mute/Unmute Audio">🔊 SOUND: ON</button>
+          <button type="button" id="btn-fullscreen" class="bezel-btn" aria-pressed="false" title="Toggle Full Screen (F11 / Alt+Enter)">⛶ FULL</button>
+          <button type="button" id="btn-aspect" class="bezel-btn" aria-pressed="false" title="Toggle 4:3 / 16:9">📐 4:3</button>
+          <button type="button" id="btn-mode" class="bezel-btn" title="Cycle Video Hardware Adapter (Alt+V / MODE)">📼 VGA 80x25</button>
+          <button type="button" id="btn-crt" class="bezel-btn active" aria-pressed="true" title="Toggle CRT Scanlines">📺 CRT: ON</button>
+          <button type="button" id="btn-theme" class="bezel-btn" title="Cycle Phosphor Theme">🎨 VGA COLOR</button>
+          <button type="button" id="btn-skin" class="bezel-btn" title="Cycle Monitor Chassis">🖥️ CLASSIC PC</button>
+          <button type="button" id="btn-pure" class="bezel-btn" title="Pure Bezel-Free 80x25 Terminal">⬜ PURE: OFF</button>
+          <button type="button" id="btn-mute" class="bezel-btn active" aria-pressed="true" title="Mute/Unmute Audio">🔊 SOUND: ON</button>
         </div>
       </div>
 
@@ -62,8 +65,10 @@
     </div>
   </div>
 
-  <!-- Hidden File Picker for Local Area 07 Uploads -->
-  <input type="file" id="bbs-file-input">
+  <!-- Hidden File Picker for Local Area 07 Uploads and Backups -->
+  <input type="file" id="bbs-file-input" aria-label="Upload a file to the local BBS sandbox">
+  <input type="file" id="bbs-json-input" accept=".json,application/json" aria-label="Import Forum or Full System Backup JSON">
+  <div id="bbs-live-region" class="sr-only" aria-live="polite" aria-atomic="true"></div>
 
   <!-- Core Scripts in Dependency Order -->
   <script src="assets/js/audio.js"></script>
@@ -71,6 +76,7 @@
   <script src="assets/js/net.js"></script>
   <script src="assets/js/ansi.js"></script>
   <script src="assets/js/term.js"></script>
+  <script src="assets/js/games.js"></script>
   <script src="assets/js/doors.js"></script>
   <script src="assets/js/app.js"></script>
 </body>
